@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>v4call — Announce Server on Hive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0a0c0f;--surface:#12151a;--surface2:#1a1e26;--border:#222730;
+      --accent:#f5a623;--green:#4ade80;--blue:#38bdf8;--danger:#f87171;
+      --muted:#3d4555;--text:#dde3ed;--subtext:#7a869a;--purple:#a78bfa;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:20px;}
+    h1{font-family:'IBM Plex Mono',monospace;color:var(--accent);font-size:1.3rem;margin-bottom:4px;}
+    .subtitle{font-family:'IBM Plex Mono',monospace;color:var(--subtext);font-size:0.75rem;margin-bottom:24px;line-height:1.6;}
+    .subtitle a{color:var(--blue);}
+    .layout{display:grid;grid-template-columns:1fr 520px;gap:20px;max-width:1300px;}
+    @media(max-width:880px){.layout{grid-template-columns:1fr;}}
+
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px;}
+    .card-title{font-family:'IBM Plex Mono',monospace;font-size:0.78rem;color:var(--accent);letter-spacing:0.05em;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;}
+
+    label{font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:var(--subtext);letter-spacing:0.04em;display:block;margin-bottom:4px;}
+    input,select,textarea{width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:0.82rem;outline:none;transition:border-color 0.2s;}
+    input:focus,select:focus,textarea:focus{border-color:var(--accent);}
+    input[readonly]{color:var(--subtext);background:var(--surface2);}
+    .field{margin-bottom:12px;}
+    .row{display:flex;gap:10px;}
+    .row>.field{flex:1;}
+    .field-hint{font-family:'IBM Plex Mono',monospace;font-size:0.66rem;color:var(--muted);margin-top:4px;line-height:1.5;}
+
+    button.primary{padding:10px 18px;background:var(--accent);color:#0a0c0f;border:none;border-radius:6px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:0.82rem;transition:opacity 0.2s;}
+    button.primary:hover{opacity:0.85;}
+    button.primary:disabled{opacity:0.4;cursor:not-allowed;}
+    button.secondary{padding:8px 14px;background:transparent;color:var(--subtext);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:0.78rem;transition:border-color 0.2s,color 0.2s;}
+    button.secondary:hover{border-color:var(--accent);color:var(--accent);}
+    button.post-btn{padding:12px 18px;background:var(--green);color:#0a0c0f;border:none;border-radius:6px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:0.86rem;transition:opacity 0.2s;}
+    button.post-btn:hover{opacity:0.85;}
+    button.post-btn:disabled{opacity:0.4;cursor:not-allowed;}
+    .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+
+    .info-box{background:rgba(56,189,248,0.06);border:1px solid rgba(56,189,248,0.2);border-radius:7px;padding:10px 13px;font-size:0.78rem;color:var(--blue);line-height:1.6;margin-bottom:14px;}
+    .warn-box{background:rgba(245,166,35,0.06);border:1px solid rgba(245,166,35,0.25);border-radius:7px;padding:10px 13px;font-size:0.78rem;color:var(--accent);line-height:1.6;margin-bottom:14px;}
+    .err-box{background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.3);border-radius:7px;padding:10px 13px;font-size:0.78rem;color:var(--danger);line-height:1.6;margin-bottom:14px;display:none;}
+    .ok-box{background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.3);border-radius:7px;padding:10px 13px;font-size:0.78rem;color:var(--green);line-height:1.6;margin-bottom:14px;display:none;}
+
+    #output-panel{position:sticky;top:20px;}
+    #preview-area{width:100%;height:380px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:0.7rem;padding:10px;resize:vertical;white-space:pre-wrap;}
+    .keychain-note{font-family:'IBM Plex Mono',monospace;font-size:0.67rem;color:var(--muted);line-height:1.6;margin-top:10px;}
+    .slabel{font-family:'IBM Plex Mono',monospace;font-size:0.63rem;color:var(--muted);letter-spacing:0.07em;margin:10px 0 5px;border-left:2px solid var(--border);padding-left:6px;}
+
+    .wiki-link{display:block;font-family:'IBM Plex Mono',monospace;font-size:0.69rem;color:var(--muted);text-align:center;text-decoration:none;padding:10px;transition:color 0.2s;}
+    .wiki-link:hover{color:var(--accent);}
+    .chain-link{display:inline-block;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--purple);text-decoration:none;padding:6px 10px;border:1px solid rgba(167,139,250,0.3);border-radius:5px;transition:background 0.2s;margin-top:6px;}
+    .chain-link:hover{background:rgba(167,139,250,0.1);}
+
+    code{font-family:'IBM Plex Mono',monospace;font-size:0.72rem;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--accent);}
+
+    .meta-row{display:flex;gap:14px;font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--subtext);margin-bottom:12px;flex-wrap:wrap;}
+    .meta-row span strong{color:var(--accent);}
+  </style>
+</head>
+<body>
+
+<h1>v4call — Announce Server on Hive</h1>
+<div class="subtitle">
+  Publish a <code>v4call-server</code> post to the Hive blockchain so other v4call servers discover you.
+  <br>The post is pure directory metadata — it points at your <code>/.well-known/v4call-server.json</code> which is where the cryptographic proof lives.
+</div>
+
+<div class="info-box">
+  <strong>Before posting:</strong> make sure your <code>/.well-known/v4call-server.json</code> is already signed and live at the domain below. Discovering servers will fetch that file to verify you — if it isn't there, they'll ignore the announcement.
+  <br><a href="/server-sign.html" class="chain-link">↺ open signer page</a>
+</div>
+
+<div class="layout">
+
+  <!-- ═══════════════ LEFT: FORM ═══════════════ -->
+  <div id="editor">
+
+    <!-- ═══ PASTE SIGNED JSON (recommended — single source of truth) ═══ -->
+    <div class="card" style="border-color:rgba(167,139,250,0.4);">
+      <div class="card-title" style="color:var(--purple);">PASTE SIGNED v4call-server.json (recommended)</div>
+      <div class="info-box" style="font-size:0.74rem;background:rgba(167,139,250,0.05);border-color:rgba(167,139,250,0.25);color:var(--text);">
+        If you've just signed your <code>v4call-server.json</code> in
+        <a href="/server-sign.html" style="color:var(--purple);">server-sign.html</a>,
+        paste it here — the form auto-populates AND the embedded Nostr attestation
+        flows through to the Hive post body (as a base64 line). One signed event,
+        two surfaces, no double-signing.
+      </div>
+      <textarea id="json-paste" rows="6" placeholder='{"claim":"v4call-server-ownership", ...}' style="font-size:0.7rem;resize:vertical;height:120px;"></textarea>
+      <div class="btn-row">
+        <button class="secondary" onclick="loadFromJson()">📥 Load fields from JSON</button>
+        <button class="secondary" onclick="clearLoadedAttestation()">Clear attestation</button>
+      </div>
+      <div id="json-load-status" class="field-hint" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">IDENTITY</div>
+      <div class="field">
+        <label>HIVE ACCOUNT (poster)</label>
+        <input id="hive-account" type="text" placeholder="hive-book" autocapitalize="none" spellcheck="false"/>
+        <div class="field-hint">The Hive account that will author this post. Same as the one in your v4call-server.json (<code>SERVER_HIVE_ACCOUNT</code>).</div>
+      </div>
+      <div class="field">
+        <label>DOMAIN</label>
+        <input id="domain" type="text" placeholder="hive-book.com" autocapitalize="none" spellcheck="false"/>
+        <div class="field-hint">The public hostname. Must match your v4call-server.json's <code>domain</code> field.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">SERVER CONFIG</div>
+      <div class="row">
+        <div class="field">
+          <label>ESCROW ACCOUNT</label>
+          <input id="escrow" type="text" placeholder="v4call-escrow" autocapitalize="none" spellcheck="false"/>
+        </div>
+        <div class="field">
+          <label>FEE ACCOUNT</label>
+          <input id="fee-account" type="text" placeholder="hive-book" autocapitalize="none" spellcheck="false"/>
+        </div>
+      </div>
+      <div class="field">
+        <label>FEDERATION WEBSOCKET URL</label>
+        <input id="fed-ws" type="text" placeholder="wss://hive-book.com/federation" autocapitalize="none" spellcheck="false"/>
+      </div>
+      <div class="field">
+        <label>VERIFY URL (auto)</label>
+        <input id="verify-url" type="text" readonly placeholder="https://hive-book.com/.well-known/v4call-server.json"/>
+        <div class="field-hint">Auto-computed from DOMAIN. This is where discoverers fetch your signed proof.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">SOFTWARE</div>
+      <div class="row">
+        <div class="field">
+          <label>SOFTWARE NAME</label>
+          <input id="software" type="text" value="v4call" spellcheck="false"/>
+          <div class="field-hint">Your implementation's name. Forks welcome — e.g. <code>hivebook-calls</code>. Informational.</div>
+        </div>
+        <div class="field">
+          <label>PROTOCOL VERSION</label>
+          <input id="protocol" type="text" value="0.3" spellcheck="false"/>
+          <div class="field-hint">Federation protocol you speak. Should match <code>FEDERATION_VERSION</code> in server.js.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">NOSTR <span style="font-size:0.65rem;color:var(--muted);font-weight:normal;letter-spacing:0;">— optional, for v0.18.5+ federation discovery layer</span></div>
+      <div class="info-box" style="font-size:0.72rem;">
+        Cross-reference your server's Nostr identity here so other v4call servers can find you over Nostr too. Skip this card entirely if you don't have a Nostr keypair for your server yet — the announce post is fully valid without it.
+        <br>Need a keypair? Use <a href="/nostr-gen.html" style="color:var(--blue);">nostr-gen.html</a> (browser-only, keys never leave your machine).
+      </div>
+      <div class="field">
+        <label>NOSTR PUBKEY (npub)</label>
+        <input id="nostr-npub" type="text" placeholder="npub1..." autocapitalize="none" spellcheck="false"/>
+        <div class="field-hint">The bech32 form. Hex auto-fills below if you paste a valid npub.</div>
+      </div>
+      <div class="field">
+        <label>NOSTR PUBKEY (hex)</label>
+        <input id="nostr-hex" type="text" placeholder="64-char lowercase hex (auto-fills from npub)" autocapitalize="none" spellcheck="false"/>
+        <div class="field-hint">Same key, different encoding. Many relays' config files (e.g. <code>nostr-rs-relay</code>'s <code>pubkey_whitelist</code>) need the hex form.</div>
+      </div>
+      <div class="slabel">RELAYS — up to 5 (any blank rows are skipped)</div>
+      <div class="field">
+        <label>NOSTR RELAY 1</label>
+        <input id="nostr-relay-1" type="text" value="wss://nostr.v4call.com" autocapitalize="none" spellcheck="false"/>
+      </div>
+      <div class="field">
+        <label>NOSTR RELAY 2</label>
+        <input id="nostr-relay-2" type="text" value="wss://nostr.hive-book.com" autocapitalize="none" spellcheck="false"/>
+      </div>
+      <div class="field">
+        <label>NOSTR RELAY 3</label>
+        <input id="nostr-relay-3" type="text" placeholder="wss://your-third-relay.example.com" autocapitalize="none" spellcheck="false"/>
+      </div>
+      <div class="field">
+        <label>NOSTR RELAY 4</label>
+        <input id="nostr-relay-4" type="text" placeholder="wss://your-fourth-relay.example.com" autocapitalize="none" spellcheck="false"/>
+      </div>
+      <div class="field">
+        <label>NOSTR RELAY 5</label>
+        <input id="nostr-relay-5" type="text" placeholder="wss://your-fifth-relay.example.com" autocapitalize="none" spellcheck="false"/>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">POST OPTIONS</div>
+      <div class="field">
+        <label>POST TAGS (comma separated)</label>
+        <input id="tags" type="text" value="v4call-server, v4call, hive" spellcheck="false"/>
+        <div class="field-hint">First tag becomes the post category. <code>v4call-server</code> must stay first — that's what discovery searches for.</div>
+      </div>
+      <div class="field">
+        <label>INTRO PARAGRAPH (optional)</label>
+        <textarea id="intro" rows="3" placeholder="Optional human-readable description. Shown above the machine-readable block." spellcheck="false"></textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">PUBLISH</div>
+      <div class="err-box" id="err-box"></div>
+      <div class="ok-box"  id="ok-box"></div>
+
+      <div class="slabel">PREFERRED · KEYCHAIN (posting key stays in your browser)</div>
+      <button class="post-btn" id="post-btn" onclick="postToHive()">📡 Post to Hive</button>
+      <div class="keychain-note" id="keychain-status">Detecting Keychain…</div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;"/>
+
+      <div class="slabel">FALLBACK · POSTING KEY PASTE (signs + broadcasts via dhive)</div>
+      <div class="field-hint" style="margin-bottom:10px;">
+        Use this if Keychain isn't installed or is misbehaving. The page constructs
+        the post operation locally, signs it with your pasted posting key, and
+        broadcasts it directly to a Hive node. The key never leaves your browser.
+      </div>
+      <div class="field">
+        <label>HIVE POSTING PRIVATE KEY (starts with <code>5J</code>)</label>
+        <input id="posting-key" type="password" placeholder="5Jxxx…" autocomplete="off" spellcheck="false"/>
+        <div class="field-hint">In memory only until this tab closes. Wiped after a successful broadcast.</div>
+      </div>
+      <button class="secondary" id="post-key-btn" onclick="postWithKey()">Post to Hive with Posting Key →</button>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;"/>
+
+      <div class="slabel">FALLBACK · MANUAL POST (copy + paste into peakd / hive.blog)</div>
+      <div class="field-hint" style="margin-bottom:10px;">
+        Last-resort fallback: copy or download the body below and paste it into
+        peakd.com / hive.blog with the title <code>v4call-server</code> and the
+        tags shown above.
+      </div>
+      <div class="btn-row">
+        <button class="secondary" onclick="copyBody()">📋 Copy body</button>
+        <button class="secondary" onclick="downloadBody()">⬇ Download .md</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════ RIGHT: PREVIEW ═══════════════ -->
+  <div id="output-panel">
+    <div class="card">
+      <div class="card-title">
+        <span>POST PREVIEW</span>
+        <span style="font-size:0.65rem;color:var(--subtext);" id="preview-status">unsigned</span>
+      </div>
+      <div class="meta-row">
+        <span>title: <strong id="meta-title">v4call-server</strong></span>
+        <span>permlink: <strong id="meta-permlink">—</strong></span>
+      </div>
+      <textarea id="preview-area" readonly placeholder="Fill the form — a live preview of the Hive post body will appear here."></textarea>
+      <div id="nostr-warning" class="warn-box" style="display:none;margin-top:12px;background:rgba(245,166,35,0.07);border-color:rgba(245,166,35,0.35);"></div>
+      <div class="warn-box" style="margin-top:12px;">
+        <strong>Note:</strong> posting to Hive costs Resource Credits. Make sure <code>@your-account</code> has some Hive Power staked (or delegated).
+        A new post consumes roughly the same RC as a comment — usually fine if the account has 10+ HP.
+      </div>
+    </div>
+
+    <a href="/info.html" class="wiki-link">← back to v4call info</a>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@hiveio/dhive@1.3.2/dist/dhive.js"></script>
+<script type="module">
+// ── nostr-tools loader — used to verify pasted attestation events before posting.
+import {
+  verifyEvent,
+  nip19
+} from 'https://esm.sh/nostr-tools@2.7.2';
+window.nGate = { verifyEvent, nip19, ready: true };
+document.dispatchEvent(new CustomEvent('nGate-ready'));
+</script>
+<script>
+// ── Constants ─────────────────────────────────────────────
+const FIXED_TITLE = 'v4call-server';
+const APP_NAME    = 'v4call-announce/0.3';
+const ATTESTATION_D_TAG = 'v4call-server-cross-attestation';
+
+// ── State ─────────────────────────────────────────────────
+// Holds the kind-30078 Nostr attestation event extracted from a pasted
+// v4call-server.json. null when no attestation is loaded.
+let loadedAttestation = null;
+
+// ── Bech32 (npub <-> hex) — same primitives as nostr-gen.html ─────────
+const BECH32_CHARSET   = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+const BECH32_GENERATOR = [0x3b6a57b2,0x26508e6d,0x1ea119fa,0x3d4233dd,0x2a1462b3];
+function bech32Polymod(values) {
+  let chk = 1;
+  for (let p = 0; p < values.length; p++) {
+    const top = chk >> 25;
+    chk = (chk & 0x1ffffff) << 5 ^ values[p];
+    for (let i = 0; i < 5; i++) if ((top >> i) & 1) chk ^= BECH32_GENERATOR[i];
+  }
+  return chk;
+}
+function bech32HrpExpand(hrp) {
+  const ret = [];
+  for (let p = 0; p < hrp.length; p++) ret.push(hrp.charCodeAt(p) >> 5);
+  ret.push(0);
+  for (let p = 0; p < hrp.length; p++) ret.push(hrp.charCodeAt(p) & 31);
+  return ret;
+}
+function bech32CreateChecksum(hrp, data) {
+  const values = bech32HrpExpand(hrp).concat(data).concat([0,0,0,0,0,0]);
+  const polymod = bech32Polymod(values) ^ 1;
+  const ret = [];
+  for (let i = 0; i < 6; i++) ret.push((polymod >> (5*(5-i))) & 31);
+  return ret;
+}
+function convertBits(data, fromBits, toBits, pad) {
+  let acc = 0, bits = 0;
+  const ret = [], maxv = (1 << toBits) - 1;
+  for (let i = 0; i < data.length; i++) {
+    acc = (acc << fromBits) | data[i];
+    bits += fromBits;
+    while (bits >= toBits) { bits -= toBits; ret.push((acc >> bits) & maxv); }
+  }
+  if (pad && bits > 0) ret.push((acc << (toBits - bits)) & maxv);
+  else if (!pad && (bits >= fromBits || ((acc << (toBits - bits)) & maxv))) return null;
+  return ret;
+}
+function hexToNpub(hexStr) {
+  const bytes = hexStr.match(/.{1,2}/g).map(b => parseInt(b, 16));
+  const data  = convertBits(bytes, 8, 5, true);
+  const combined = data.concat(bech32CreateChecksum('npub', data));
+  return 'npub1' + combined.map(d => BECH32_CHARSET[d]).join('');
+}
+function npubToHex(s) {
+  s = s.toLowerCase().trim();
+  if (!s.startsWith('npub1')) throw new Error('not an npub');
+  const sep = s.lastIndexOf('1');
+  if (sep < 1 || sep + 7 > s.length) throw new Error('bad bech32 format');
+  const hrp  = s.slice(0, sep);
+  if (hrp !== 'npub') throw new Error('hrp mismatch');
+  const data = [];
+  for (let i = sep + 1; i < s.length; i++) {
+    const idx = BECH32_CHARSET.indexOf(s[i]);
+    if (idx < 0) throw new Error('invalid char in npub');
+    data.push(idx);
+  }
+  if (bech32Polymod(bech32HrpExpand(hrp).concat(data)) !== 1) throw new Error('bad checksum');
+  const bytes = convertBits(data.slice(0, -6), 5, 8, false);
+  if (!bytes || bytes.length !== 32) throw new Error('decoded length not 32 bytes');
+  return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ── Utilities ─────────────────────────────────────────────
+function nowIsoUtc() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+function permlinkFor(tsMs) {
+  // Timestamp-based permlink like rate-editor does — lets operators re-post
+  // without editing (which costs RC and complicates discovery).
+  return `v4call-server-${Math.floor(tsMs / 1000)}`;
+}
+function showErr(msg) { const b=document.getElementById('err-box'); b.textContent=msg; b.style.display=msg?'block':'none'; document.getElementById('ok-box').style.display='none'; }
+function showOk(msg)  { const b=document.getElementById('ok-box');  b.textContent=msg; b.style.display=msg?'block':'none'; document.getElementById('err-box').style.display='none'; }
+
+// ── Collect + validate ───────────────────────────────────
+function collect() {
+  const domain = document.getElementById('domain').value.trim().toLowerCase();
+  const relays = [1,2,3,4,5]
+    .map(i => document.getElementById('nostr-relay-' + i).value.trim())
+    .filter(Boolean);
+  return {
+    account:       document.getElementById('hive-account').value.trim().toLowerCase().replace(/^@/, ''),
+    domain:        domain,
+    escrow:        document.getElementById('escrow').value.trim().toLowerCase().replace(/^@/, ''),
+    fee_account:   document.getElementById('fee-account').value.trim().toLowerCase().replace(/^@/, ''),
+    fed_ws:        document.getElementById('fed-ws').value.trim(),
+    verify_url:    domain ? `https://${domain}/.well-known/v4call-server.json` : '',
+    software:      document.getElementById('software').value.trim() || 'v4call',
+    protocol:      document.getElementById('protocol').value.trim() || '0.3',
+    intro:         document.getElementById('intro').value.trim(),
+    tags:          document.getElementById('tags').value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean),
+    nostr_npub:    document.getElementById('nostr-npub').value.trim(),
+    nostr_hex:     document.getElementById('nostr-hex').value.trim().toLowerCase(),
+    nostr_relays:  relays,
+    nostr_attestation: loadedAttestation
+  };
+}
+
+function validate(f) {
+  const missing = [];
+  if (!f.account)     missing.push('hive account');
+  if (!f.domain)      missing.push('domain');
+  if (!f.escrow)      missing.push('escrow');
+  if (!f.fee_account) missing.push('fee account');
+  if (!f.fed_ws)      missing.push('federation WS');
+  if (f.tags.length === 0) missing.push('at least one tag');
+  if (missing.length) return `Missing: ${missing.join(', ')}`;
+  if (!/^[a-z0-9.-]+$/.test(f.domain)) return 'Domain must be lowercase, no scheme or path.';
+  if (!f.fed_ws.startsWith('ws://') && !f.fed_ws.startsWith('wss://')) return 'Federation WS URL must start with ws:// or wss://';
+  if (f.tags[0] !== 'v4call-server') return 'First tag must be "v4call-server" — that\'s what discovery searches for.';
+  // Nostr fields are optional. Only validate format if something was provided.
+  if (f.nostr_npub && !f.nostr_npub.startsWith('npub1')) return 'NOSTR npub must start with "npub1".';
+  if (f.nostr_hex  && !/^[0-9a-f]{64}$/.test(f.nostr_hex)) return 'NOSTR hex pubkey must be exactly 64 lowercase hex characters.';
+  for (const r of f.nostr_relays) {
+    if (!r.startsWith('ws://') && !r.startsWith('wss://')) return `NOSTR relay "${r}" must start with ws:// or wss://`;
+  }
+  // Attestation is optional. Without it, the post simply omits the NOSTR-ATTESTATION
+  // line and consumers that require nGate-verify will skip Nostr-discovery for this
+  // peer (everything else — Hive verification, federation handshake, calls, DMs —
+  // still works). If you want full Nostr-discovery, paste your signed
+  // v4call-server.json at the top of the page so the attestation flows through.
+  // If we DO have an attestation, sanity-check its tags match the current form values.
+  if (f.nostr_attestation) {
+    const tag = (n) => (f.nostr_attestation.tags.find(t => t[0] === n) || [])[1];
+    if (f.nostr_hex && f.nostr_attestation.pubkey.toLowerCase() !== f.nostr_hex) {
+      return `Attestation pubkey (${f.nostr_attestation.pubkey.slice(0,16)}…) doesn't match NOSTR HEX (${f.nostr_hex.slice(0,16)}…). Re-paste the signed JSON or re-sign.`;
+    }
+    if (tag('v4call_hive_account') !== f.account) {
+      return `Attestation v4call_hive_account tag (${tag('v4call_hive_account')}) doesn't match HIVE ACCOUNT field (${f.account}). Re-paste the signed JSON or re-sign with the right values.`;
+    }
+    if (tag('v4call_domain') !== f.domain) {
+      return `Attestation v4call_domain tag (${tag('v4call_domain')}) doesn't match DOMAIN field (${f.domain}). Re-paste the signed JSON or re-sign with the right values.`;
+    }
+  }
+  return null;
+}
+
+// ── Post body builder ────────────────────────────────────
+function buildBody(f, issued) {
+  const intro = f.intro || `This post announces a v4call federation server operated by @${f.account} at **${f.domain}**. v4call is a decentralised paid video/voice/text communication platform built on the Hive blockchain. Users set their own rates, callers pay with HBD or custom Hive-Engine tokens, and unused credit is refunded automatically.`;
+
+  const lines = [
+    '[V4CALL-SERVER-V1]',
+    `DOMAIN: ${f.domain}`,
+    `HIVE-ACCOUNT: ${f.account}`,
+    `ESCROW: ${f.escrow}`,
+    `FEE-ACCOUNT: ${f.fee_account}`,
+    `FEDERATION-WS: ${f.fed_ws}`,
+    `VERIFY-URL: ${f.verify_url}`,
+    `SOFTWARE: ${f.software}`,
+    `PROTOCOL: ${f.protocol}`
+  ];
+  if (f.nostr_npub)         lines.push(`NOSTR-PUBKEY: ${f.nostr_npub}`);
+  if (f.nostr_hex)          lines.push(`NOSTR-PUBKEY-HEX: ${f.nostr_hex}`);
+  if (f.nostr_relays.length) lines.push(`NOSTR-RELAYS: ${f.nostr_relays.join(', ')}`);
+  // Embed the kind-30078 cross-attestation as a single base64-encoded JSON line.
+  // nGate-discovery base64-decodes + verifies; without this, user-tier and
+  // server-tier relays reject the post.
+  if (f.nostr_attestation) {
+    const b64 = btoa(JSON.stringify(f.nostr_attestation));
+    lines.push(`NOSTR-ATTESTATION: ${b64}`);
+  }
+  lines.push(`DECLARED: ${issued}`);
+  lines.push('[/V4CALL-SERVER-V1]');
+  const block = lines.join('\n');
+
+  // Four-space-indented = markdown code block, safe inside a JS template.
+  const blockIndented = block.split('\n').map(l => '    ' + l).join('\n');
+
+  return [
+    `# v4call server — ${f.domain}`,
+    '',
+    intro,
+    '',
+    `**Federation WebSocket**: \`${f.fed_ws}\``,
+    `**Verify URL**: ${f.verify_url}`,
+    '',
+    `[Learn more about v4call →](https://completenoobs.com/index.php/V4call)`,
+    '',
+    '---',
+    '',
+    '## Federation directory entry (machine-readable)',
+    '',
+    blockIndented,
+    '',
+    '---',
+    '',
+    '*Discovering v4call servers parse the block above and verify ownership by fetching the signed Verify URL. This post contains no private keys or secrets — only public directory metadata.*',
+    '',
+    `*Posted via v4call server-announce tool · protocol ${f.protocol}*`
+  ].join('\n');
+}
+
+// ── Load fields + attestation from a pasted signed v4call-server.json ────
+function loadFromJson() {
+  const statusEl = document.getElementById('json-load-status');
+  const raw = document.getElementById('json-paste').value.trim();
+  if (!raw) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = 'Paste the signed v4call-server.json above first.';
+    return;
+  }
+  let obj;
+  try { obj = JSON.parse(raw); }
+  catch (e) {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = '✗ JSON parse error: ' + e.message;
+    return;
+  }
+  if (obj.claim !== 'v4call-server-ownership') {
+    statusEl.style.color = 'var(--danger)';
+    statusEl.textContent = `✗ Wrong claim string — expected "v4call-server-ownership", got "${obj.claim}".`;
+    return;
+  }
+
+  // Populate fields
+  const setIf = (id, val) => { if (val !== undefined && val !== null) document.getElementById(id).value = val; };
+  setIf('hive-account', obj.hive_account);
+  setIf('domain',       obj.domain);
+  setIf('escrow',       obj.escrow);
+  setIf('fee-account',  obj.fee_account);
+  setIf('fed-ws',       obj.federation_ws);
+  setIf('nostr-npub',   obj.nostr_npub);
+  setIf('nostr-hex',    obj.nostr_hex);
+  // Relays
+  const relays = Array.isArray(obj.nostr_relays) ? obj.nostr_relays : [];
+  for (let i = 1; i <= 5; i++) {
+    const el = document.getElementById('nostr-relay-' + i);
+    if (el) el.value = relays[i - 1] || '';
+  }
+
+  // Validate + store attestation
+  if (obj.nostr_attestation) {
+    if (!window.nGate || !window.nGate.ready) {
+      statusEl.style.color = 'var(--accent)';
+      statusEl.textContent = '⚠ nostr-tools not loaded yet — try again in a moment.';
+      return;
+    }
+    const ev = obj.nostr_attestation;
+    if (!window.nGate.verifyEvent(ev)) {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = '✗ JSON loaded BUT the embedded nostr_attestation event fails verifyEvent (tampered or invalid sig).';
+      loadedAttestation = null;
+      updatePreview();
+      return;
+    }
+    const tag = (n) => (ev.tags.find(t => t[0] === n) || [])[1];
+    if (tag('d') !== ATTESTATION_D_TAG) {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = `✗ Attestation d-tag is "${tag('d')}" — expected "${ATTESTATION_D_TAG}".`;
+      loadedAttestation = null;
+      updatePreview();
+      return;
+    }
+    if (obj.nostr_hex && ev.pubkey.toLowerCase() !== obj.nostr_hex.toLowerCase()) {
+      statusEl.style.color = 'var(--danger)';
+      statusEl.textContent = '✗ Attestation pubkey doesn\'t match well-known nostr_hex (corrupt JSON).';
+      loadedAttestation = null;
+      updatePreview();
+      return;
+    }
+    loadedAttestation = ev;
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `✓ Loaded — fields populated + verified attestation by ${ev.pubkey.slice(0,16)}… ready to post.`;
+  } else if (obj.nostr_npub || obj.nostr_hex) {
+    statusEl.style.color = 'var(--accent)';
+    statusEl.textContent = '⚠ Fields loaded but the JSON has no nostr_attestation — nGate-verify will reject. Re-sign in server-sign.html.';
+    loadedAttestation = null;
+  } else {
+    loadedAttestation = null;
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = '✓ Loaded (no Nostr fields — announce will not include Nostr-discovery info).';
+  }
+  updatePreview();
+}
+
+function clearLoadedAttestation() {
+  loadedAttestation = null;
+  const statusEl = document.getElementById('json-load-status');
+  statusEl.style.color = 'var(--subtext)';
+  statusEl.textContent = 'Attestation cleared. Note: any Nostr fields you leave in the form will fail nGate-verify without an attestation.';
+  updatePreview();
+}
+
+function updatePreview() {
+  const f = collect();
+  document.getElementById('verify-url').value = f.verify_url;
+  const issued    = nowIsoUtc();
+  const body      = buildBody(f, issued);
+  const permlink  = permlinkFor(Date.now());
+  document.getElementById('preview-area').value = body;
+  document.getElementById('meta-title').textContent    = FIXED_TITLE;
+  document.getElementById('meta-permlink').textContent = permlink;
+  // Soft warning: Nostr fields without an attestation — post is still valid,
+  // but consumers requiring nGate-verify will skip Nostr-discovery for this peer.
+  const warnEl = document.getElementById('nostr-warning');
+  if (warnEl) {
+    if ((f.nostr_npub || f.nostr_hex) && !f.nostr_attestation) {
+      warnEl.style.display = 'block';
+      warnEl.textContent = '⚠ Nostr fields are set but no attestation is loaded. The post will publish without the NOSTR-ATTESTATION line — Nostr-discovery will be skipped by strict consumers. Paste your signed v4call-server.json above to include it.';
+    } else {
+      warnEl.style.display = 'none';
+      warnEl.textContent = '';
+    }
+  }
+}
+
+// ── Keychain post ─────────────────────────────────────────
+function postToHive() {
+  showErr(''); showOk('');
+  const f = collect();
+  const err = validate(f);
+  if (err) return showErr(err);
+
+  if (!window.hive_keychain) {
+    return showErr('Hive Keychain not detected. Install from https://hive-keychain.com or use Copy/Download below and post manually.');
+  }
+
+  const issued    = nowIsoUtc();
+  const body      = buildBody(f, issued);
+  const permlink  = permlinkFor(Date.now());
+  const parentTag = f.tags[0]; // "v4call-server"
+
+  const v4callMeta = {
+    protocol:      f.protocol,
+    software:      f.software,
+    domain:        f.domain,
+    verify_url:    f.verify_url,
+    federation_ws: f.fed_ws,
+    escrow:        f.escrow,
+    fee_account:   f.fee_account,
+    declared:      issued
+  };
+  if (f.nostr_npub || f.nostr_hex || f.nostr_relays.length || f.nostr_attestation) {
+    v4callMeta.nostr = {};
+    if (f.nostr_npub)          v4callMeta.nostr.pubkey      = f.nostr_npub;
+    if (f.nostr_hex)           v4callMeta.nostr.pubkey_hex  = f.nostr_hex;
+    if (f.nostr_relays.length) v4callMeta.nostr.relays      = f.nostr_relays;
+    if (f.nostr_attestation)   v4callMeta.nostr.attestation = f.nostr_attestation;
+  }
+  const jsonMeta = {
+    tags:   f.tags,
+    app:    APP_NAME,
+    format: 'markdown',
+    v4call: v4callMeta
+  };
+
+  const btn = document.getElementById('post-btn');
+  btn.disabled = true; btn.textContent = 'Opening Keychain…';
+
+  // Keychain signature: requestPost(account, title, body, parentPerm, parentUser, jsonMeta, permlink, commentOptions, cb)
+  window.hive_keychain.requestPost(
+    f.account,
+    FIXED_TITLE,
+    body,
+    parentTag,        // parent_permlink = category tag
+    '',               // parent_author (empty = root post)
+    JSON.stringify(jsonMeta),
+    permlink,
+    '',               // comment_options — Hive defaults (empty string, not null — Keychain validates string)
+    (response) => {
+      btn.disabled = false; btn.textContent = '📡 Post to Hive';
+      if (!response.success) {
+        return showErr(`Keychain: ${response.message || 'cancelled'}`);
+      }
+      showOk(`✓ Posted to Hive as @${f.account}/${permlink} — transaction ${response.result?.id || 'broadcast'}.`);
+      document.getElementById('preview-status').textContent = 'posted';
+      document.getElementById('preview-status').style.color = 'var(--green)';
+    }
+  );
+}
+
+// ── Posting key paste fallback ────────────────────────────
+// Signs and broadcasts the Hive post operation directly via dhive when
+// Keychain is unavailable or buggy. The posting key lives only in this
+// tab's memory; it's wiped after a successful broadcast.
+async function postWithKey() {
+  showErr(''); showOk('');
+  const f = collect();
+  const err = validate(f);
+  if (err) return showErr(err);
+
+  const keyStr = document.getElementById('posting-key').value.trim();
+  if (!keyStr) return showErr('Paste your Hive posting private key first.');
+
+  if (typeof dhive === 'undefined') {
+    return showErr('dhive library failed to load — check internet / CDN.');
+  }
+
+  let priv;
+  try { priv = dhive.PrivateKey.fromString(keyStr); }
+  catch (e) { return showErr(`Invalid posting key: ${e.message}`); }
+
+  const issued    = nowIsoUtc();
+  const body      = buildBody(f, issued);
+  const permlink  = permlinkFor(Date.now());
+  const parentTag = f.tags[0]; // "v4call-server"
+
+  // Build the Hive json_metadata exactly like the Keychain path
+  const v4callMeta = {
+    protocol:      f.protocol,
+    software:      f.software,
+    domain:        f.domain,
+    verify_url:    f.verify_url,
+    federation_ws: f.fed_ws,
+    escrow:        f.escrow,
+    fee_account:   f.fee_account,
+    declared:      issued
+  };
+  if (f.nostr_npub || f.nostr_hex || f.nostr_relays.length || f.nostr_attestation) {
+    v4callMeta.nostr = {};
+    if (f.nostr_npub)          v4callMeta.nostr.pubkey      = f.nostr_npub;
+    if (f.nostr_hex)           v4callMeta.nostr.pubkey_hex  = f.nostr_hex;
+    if (f.nostr_relays.length) v4callMeta.nostr.relays      = f.nostr_relays;
+    if (f.nostr_attestation)   v4callMeta.nostr.attestation = f.nostr_attestation;
+  }
+  const jsonMeta = {
+    tags:   f.tags,
+    app:    APP_NAME,
+    format: 'markdown',
+    v4call: v4callMeta
+  };
+
+  const btn = document.getElementById('post-key-btn');
+  btn.disabled = true; btn.textContent = 'Broadcasting…';
+
+  // Multi-node fallback for robustness
+  const NODES = [
+    'https://api.hive.blog',
+    'https://api.deathwing.me',
+    'https://hive-api.arcange.eu',
+    'https://api.openhive.network'
+  ];
+
+  let lastErr = null;
+  for (const node of NODES) {
+    try {
+      const client = new dhive.Client(node);
+      const op = ['comment', {
+        parent_author:   '',
+        parent_permlink: parentTag,
+        author:          f.account,
+        permlink:        permlink,
+        title:           FIXED_TITLE,
+        body:            body,
+        json_metadata:   JSON.stringify(jsonMeta)
+      }];
+      const result = await client.broadcast.sendOperations([op], priv);
+      // Success — wipe the key + report
+      document.getElementById('posting-key').value = '';
+      btn.disabled = false; btn.textContent = 'Post to Hive with Posting Key →';
+      showOk(`✓ Posted to Hive as @${f.account}/${permlink} via ${node} — tx ${result.id}`);
+      document.getElementById('preview-status').textContent = 'posted';
+      document.getElementById('preview-status').style.color = 'var(--green)';
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.warn(`broadcast via ${node} failed:`, e.message);
+      // Try next node
+    }
+  }
+
+  btn.disabled = false; btn.textContent = 'Post to Hive with Posting Key →';
+  showErr(`Broadcast failed on all Hive nodes. Last error: ${lastErr ? lastErr.message : 'unknown'}`);
+}
+
+// ── Copy / Download fallback ─────────────────────────────
+function copyBody() {
+  const text = document.getElementById('preview-area').value;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(
+    () => { const el=document.getElementById('preview-status'); const old=el.textContent; el.textContent='copied!'; setTimeout(()=>el.textContent=old,1200); },
+    () => alert('Copy failed — select the text manually.')
+  );
+}
+function downloadBody() {
+  const text = document.getElementById('preview-area').value;
+  if (!text) return;
+  const blob = new Blob([text], { type: 'text/markdown' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'v4call-server-post.md';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ── URL querystring prefill (chain from server-sign.html) ─
+(() => {
+  const p = new URLSearchParams(location.search);
+  const set = (id, key) => { const v = p.get(key); if (v) document.getElementById(id).value = v; };
+  set('hive-account', 'account');
+  set('domain',       'domain');
+  set('escrow',       'escrow');
+  set('fee-account',  'fee');
+  set('fed-ws',       'ws');
+  set('software',     'software');
+  set('protocol',     'protocol');
+  set('nostr-npub',   'nostr_npub');
+  set('nostr-hex',    'nostr_hex');
+  // Optional: ?nostr_relays=wss://a,wss://b — distributes across relay-1..5
+  const rs = p.get('nostr_relays');
+  if (rs) rs.split(',').slice(0,5).forEach((r, i) => {
+    const el = document.getElementById('nostr-relay-' + (i+1));
+    if (el && r.trim()) el.value = r.trim();
+  });
+})();
+
+// ── Live preview as the user types ────────────────────────
+[
+  'hive-account','domain','escrow','fee-account','fed-ws','software','protocol','intro','tags',
+  'nostr-npub','nostr-hex',
+  'nostr-relay-1','nostr-relay-2','nostr-relay-3','nostr-relay-4','nostr-relay-5'
+].forEach(id => {
+  document.getElementById(id).addEventListener('input', updatePreview);
+});
+
+// ── Auto-sync npub <-> hex (only updates the OTHER field; user-typed
+//    field is left alone so we never fight the cursor)
+document.getElementById('nostr-npub').addEventListener('input', (e) => {
+  const v = e.target.value.trim();
+  if (v.startsWith('npub1') && v.length >= 60) {
+    try {
+      const hex = npubToHex(v);
+      const hexField = document.getElementById('nostr-hex');
+      if (hexField.value.trim().toLowerCase() !== hex) hexField.value = hex;
+    } catch {}
+  }
+});
+document.getElementById('nostr-hex').addEventListener('input', (e) => {
+  const v = e.target.value.trim().toLowerCase();
+  if (/^[0-9a-f]{64}$/.test(v)) {
+    try {
+      const npub = hexToNpub(v);
+      const npubField = document.getElementById('nostr-npub');
+      if (npubField.value.trim() !== npub) npubField.value = npub;
+    } catch {}
+  }
+});
+
+updatePreview();
+
+// ── Keychain presence indicator ───────────────────────────
+setTimeout(() => {
+  const el  = document.getElementById('keychain-status');
+  const btn = document.getElementById('post-btn');
+  if (window.hive_keychain) {
+    el.textContent = '✓ Keychain detected — ready to post.';
+    el.style.color = 'var(--green)';
+  } else {
+    el.textContent = '⚠ Keychain not detected. Paste your posting key below to broadcast directly, OR copy/download the body for manual posting.';
+    el.style.color = 'var(--accent)';
+    btn.disabled = true;
+  }
+}, 400);
+</script>
+</body>
+</html>

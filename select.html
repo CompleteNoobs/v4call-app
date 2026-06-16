@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>v4call — choose layout</title>
+<!--
+  v4call landing / layout selector (decoupling Step 1, §5 of handover-decoupling.md).
+  Self-contained, standalone page (no dependency on app.html). It does two jobs:
+    1. Sends the user to the right layout file — desktop-app.html or mobile-app.html
+       (UA-detected default + manual override, remembered in localStorage 'v4call:layout').
+    2. Seeds the future NODE-PICKER: an optional Node URL field writes the SAME
+       localStorage key 'v4call:node' that app.html's nodeBase() reads, so a chosen
+       node carries over to whichever layout the user opens. Blank = this server.
+  NOTE: legacy public/index.html is intentionally left untouched; this is a new file.
+  In v4call-app (Step 2) this becomes index.html, where there's no legacy collision.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#0a0c0f;--surface:#12151a;--surface2:#1a1e26;--border:#222730;
+    --accent:#f5a623;--green:#4ade80;--blue:#38bdf8;--purple:#a78bfa;
+    --muted:#3d4555;--text:#dde3ed;--subtext:#7a869a;--danger:#f87171;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; min-height:100dvh; background:var(--bg); color:var(--text);
+    font-family:'IBM Plex Sans',sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:24px; gap:22px;
+  }
+  .logo { font-family:'IBM Plex Mono',monospace; font-weight:600; color:var(--accent);
+          letter-spacing:0.06em; font-size:1.1rem; }
+  h1 { font-size:1.15rem; font-weight:600; margin:0; text-align:center; }
+  .sub { color:var(--subtext); font-size:0.82rem; text-align:center; max-width:30rem; margin:0; line-height:1.5; }
+  .cards { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; width:100%; max-width:34rem; }
+  .card {
+    flex:1 1 220px; min-width:200px; background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; padding:22px 20px; cursor:pointer; text-align:center;
+    text-decoration:none; color:var(--text); transition:border-color .15s, background .15s, transform .05s;
+    display:flex; flex-direction:column; gap:8px; align-items:center;
+  }
+  .card:hover { border-color:var(--accent); background:var(--surface2); }
+  .card:active { transform:translateY(1px); }
+  .card.recommended { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .card .icon { font-size:1.8rem; }
+  .card .name { font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:0.95rem; }
+  .card .desc { color:var(--subtext); font-size:0.74rem; line-height:1.4; }
+  .tag { font-family:'IBM Plex Mono',monospace; font-size:0.62rem; color:var(--accent);
+         border:1px solid rgba(245,166,35,.4); border-radius:999px; padding:2px 8px;
+         text-transform:uppercase; letter-spacing:.04em; visibility:hidden; }
+  .card.recommended .tag { visibility:visible; }
+  details { width:100%; max-width:34rem; }
+  summary { cursor:pointer; color:var(--subtext); font-size:0.78rem;
+            font-family:'IBM Plex Mono',monospace; list-style:none; user-select:none; }
+  summary::-webkit-details-marker { display:none; }
+  summary::before { content:'▸ '; color:var(--accent); }
+  details[open] summary::before { content:'▾ '; }
+  .node-box { margin-top:12px; background:var(--surface); border:1px solid var(--border);
+              border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+  .node-box label { font-size:0.74rem; color:var(--subtext); }
+  .node-row { display:flex; gap:8px; }
+  .node-row input {
+    flex:1; background:var(--bg); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:9px 11px; font-family:'IBM Plex Mono',monospace; font-size:0.8rem;
+  }
+  .node-row input:focus { outline:none; border-color:var(--accent); }
+  .node-row button {
+    background:transparent; color:var(--accent); border:1px solid var(--accent); border-radius:8px;
+    padding:0 14px; cursor:pointer; font-family:'IBM Plex Mono',monospace; font-size:0.78rem; font-weight:600;
+  }
+  .node-row button:hover { background:rgba(245,166,35,.12); }
+  .node-status { font-size:0.72rem; color:var(--green); min-height:1em; }
+  .node-status.warn { color:var(--danger); }
+  .hint { color:var(--muted); font-size:0.68rem; }
+  .foot { color:var(--muted); font-size:0.68rem; text-align:center; }
+</style>
+</head>
+<body>
+  <div class="logo">v4call</div>
+  <h1>Choose your layout</h1>
+  <p class="sub">v4call's screens come in two independent layouts. Pick one — your choice is
+     remembered on this device. (Active development targets desktop for now.)</p>
+
+  <div class="cards">
+    <a class="card" id="card-desktop" href="desktop-app.html" data-layout="desktop">
+      <span class="icon">🖥️</span>
+      <span class="name">Desktop</span>
+      <span class="tag">Recommended</span>
+      <span class="desc">Full multi-panel layout for a browser on a computer.</span>
+    </a>
+    <a class="card" id="card-mobile" href="mobile-app.html" data-layout="mobile">
+      <span class="icon">📱</span>
+      <span class="name">Mobile</span>
+      <span class="tag">Recommended</span>
+      <span class="desc">Single-column, bottom-tab layout for phones.</span>
+    </a>
+  </div>
+
+  <details id="node-advanced">
+    <summary>Advanced: connect to a specific node</summary>
+    <div class="node-box">
+      <label for="node-url">Node URL — the v4call-node this client talks to.
+        Leave blank to use <b>this server</b>.</label>
+      <div class="node-row">
+        <input id="node-url" type="url" inputmode="url" autocomplete="off"
+               placeholder="https://your-node.example">
+        <button id="node-save" type="button">Save</button>
+      </div>
+      <div class="node-status" id="node-status"></div>
+      <div class="hint">Stored locally as <code>v4call:node</code> and read by the app's
+        <code>nodeBase()</code>. This is the seed for the upcoming node picker.</div>
+    </div>
+  </details>
+
+  <p class="foot">Decoupling Step 1 · independent layout files · node-aware client</p>
+
+<script>
+(function () {
+  var LAYOUT_KEY = 'v4call:layout';
+  var NODE_KEY   = 'v4call:node';
+
+  function ls(get, key, val) {
+    try { return get ? localStorage.getItem(key)
+                     : (val == null ? localStorage.removeItem(key) : localStorage.setItem(key, val)); }
+    catch (e) { return null; }
+  }
+
+  // ── Layout: UA default, overridable by a stored prior choice ──────────────
+  var isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent);
+  var stored = ls(true, LAYOUT_KEY);                       // explicit override wins over UA
+  var recommended = (stored === 'desktop' || stored === 'mobile') ? stored
+                                                                  : (isMobileUA ? 'mobile' : 'desktop');
+  document.getElementById('card-' + recommended).classList.add('recommended');
+
+  // Remember the choice on click (the navigation proceeds via the anchor href).
+  Array.prototype.forEach.call(document.querySelectorAll('.card'), function (el) {
+    el.addEventListener('click', function () { ls(false, LAYOUT_KEY, el.dataset.layout); });
+  });
+
+  // ── Node-picker seed: read/write the same key nodeBase() consumes ─────────
+  var input  = document.getElementById('node-url');
+  var status = document.getElementById('node-status');
+  var current = ls(true, NODE_KEY);
+  if (current) {
+    input.value = current;
+    document.getElementById('node-advanced').open = true;     // surface it if one is set
+    status.textContent = '✓ Using node: ' + current;
+  }
+  document.getElementById('node-save').addEventListener('click', function () {
+    var v = (input.value || '').trim().replace(/\/+$/, '');
+    status.classList.remove('warn');
+    if (!v) { ls(false, NODE_KEY, null); status.textContent = '✓ Cleared — will use this server.'; return; }
+    if (!/^https?:\/\/.+/i.test(v)) { status.classList.add('warn'); status.textContent = '⚠ Must start with http:// or https://'; return; }
+    ls(false, NODE_KEY, v); input.value = v; status.textContent = '✓ Saved — layouts will connect to ' + v;
+  });
+})();
+</script>
+</body>
+</html>
