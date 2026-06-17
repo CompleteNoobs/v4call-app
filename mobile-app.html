@@ -1819,6 +1819,16 @@ function floorFor(prec) {
   const p = (typeof prec === 'number') ? prec : 3;
   return Math.pow(10, -p);
 }
+// Extract the Hive transaction id from a Hive Keychain response. The server now
+// REQUIRES this txId on every paid event (tx_id-anchored escrow verify + replay
+// guard) — Step-4 escrow migration. Keychain returns the trx id at response.result
+// (string) or response.result.id/.tx_id depending on op type / version.
+function keychainTxId(response) {
+  const r = response && response.result;
+  if (!r) return null;
+  if (typeof r === 'string') return r;
+  return r.id || r.tx_id || r.trx_id || r.txId || null;
+}
 // Display-only formatter when the exact option.precision isn't on hand: HBD/HIVE
 // keep their 3-decimal style; tokens show up to 8 decimals with trailing zeros
 // stripped (so 0.0000001 reads as "0.0000001", not "0.000" or "0.00000010").
@@ -2691,20 +2701,22 @@ async function sendDmMessage() {
     sendBtn.textContent = 'Opening Keychain…';
     sendBtn.disabled    = true;
 
-    let paid = false;
+    let kcResp = null;
     if (isToken) {
       const json = JSON.stringify({
         contractName: 'tokens', contractAction: 'transfer',
         contractPayload: { symbol: cur, to: dmPanelEscrow, quantity: amtStr, memo }
       });
-      paid = await new Promise(resolve =>
-        window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Transfer ${amtStr} ${cur}`, r => resolve(r.success))
+      kcResp = await new Promise(resolve =>
+        window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Transfer ${amtStr} ${cur}`, r => resolve(r))
       );
     } else {
-      paid = await new Promise(resolve =>
-        window.hive_keychain.requestTransfer(myUsername, dmPanelEscrow, amtStr, memo, cur, r => resolve(r.success))
+      kcResp = await new Promise(resolve =>
+        window.hive_keychain.requestTransfer(myUsername, dmPanelEscrow, amtStr, memo, cur, r => resolve(r))
       );
     }
+    const paid     = !!(kcResp && kcResp.success);
+    const textTxId = keychainTxId(kcResp);   // server requires it (tx-anchored verify)
 
     sendBtn.textContent = `Pay ${amtStr} ${cur} & Send →`;
     sendBtn.disabled    = false;
@@ -2713,7 +2725,7 @@ async function sendDmMessage() {
       return;
     }
     addLobbyMsg({type:'system', text:`✓ ${amtStr} ${cur} submitted — sending to @${dmPanelTarget}…`});
-    socket.emit('lobby-dm', { to: dmPanelTarget, ciphertext, senderCiphertext, signature, timestamp, msgId, textPaid: dmPanelRate, textMemo: memo, textCurrency: cur });
+    socket.emit('lobby-dm', { to: dmPanelTarget, ciphertext, senderCiphertext, signature, timestamp, msgId, textPaid: dmPanelRate, textMemo: memo, textTxId, textCurrency: cur });
     addLobbyMsg({ type:'dm', from:myUsername, text, isSelf:true, to:dmPanelTarget, sigOk:true, textPaid: dmPanelRate, currency: cur, signature, timestamp });
   } else {
     socket.emit('lobby-dm', { to: dmPanelTarget, ciphertext, senderCiphertext, signature, timestamp });
@@ -3181,20 +3193,22 @@ document.getElementById('invite-pay-confirm-btn').addEventListener('click', asyn
   btn.textContent = 'Opening Keychain…';
 
   const isToken = (cur !== 'HBD' && cur !== 'HIVE');
-  let paid = false;
+  let kcResp = null;
   if (isToken) {
     const json = JSON.stringify({
       contractName: 'tokens', contractAction: 'transfer',
       contractPayload: { symbol: cur, to: escrow, quantity: amtStr, memo }
     });
-    paid = await new Promise(resolve =>
-      window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Pay ${amtStr} ${cur} invite fee`, r => resolve(r.success))
+    kcResp = await new Promise(resolve =>
+      window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Pay ${amtStr} ${cur} invite fee`, r => resolve(r))
     );
   } else {
-    paid = await new Promise(resolve =>
-      window.hive_keychain.requestTransfer(myUsername, escrow, amtStr, memo, cur, r => resolve(r.success))
+    kcResp = await new Promise(resolve =>
+      window.hive_keychain.requestTransfer(myUsername, escrow, amtStr, memo, cur, r => resolve(r))
     );
   }
+  const paid = !!(kcResp && kcResp.success);
+  const txId = keychainTxId(kcResp);   // server requires it (tx-anchored verify)
 
   btn.disabled = false;
   btn.textContent = 'Pay & Invite →';
@@ -3209,7 +3223,7 @@ document.getElementById('invite-pay-confirm-btn').addEventListener('click', asyn
   socket.emit('allowlist-add', {
     room,
     username: invitee,
-    payment:  { inviteId, currency: cur, paid: amount, memo }
+    payment:  { inviteId, currency: cur, paid: amount, memo, txId }
   });
   _ipPending = null;
 });
@@ -3616,18 +3630,21 @@ async function confirmPayAndCall() {
   // this is the peer server's escrow, not our local one.
   const calleeEscrow = rates.escrow || paymentPending?.escrow || ESCROW_ACCOUNT;
 
-  function afterPaymentSuccess() {
+  function afterPaymentSuccess(txId) {
+    // txId: the on-chain tx from Keychain. ring+connect+deposit are ONE transfer,
+    // so the SAME txId rides on both verify events (server records the single row at
+    // the deposit step). The server now REQUIRES it (tx-anchored verify + replay guard).
     addLobbyMsg({type:'system',text:`✓ Payment of ${totalStr} ${cur} submitted — verifying…`});
     document.getElementById('payment-modal').classList.remove('active');
     paymentPending = null;
 
     setTimeout(() => {
-      socket.emit('verify-ring-payment', { callId, callee, amount: ring || floorFor(prec), memo, currency: cur, escrow: calleeEscrow }, ({ verified, reason }) => {
+      socket.emit('verify-ring-payment', { callId, txId, callee, amount: ring || floorFor(prec), memo, currency: cur, escrow: calleeEscrow }, ({ verified, reason }) => {
         if (!verified && total > 0) {
           setTimeout(() => {
-            socket.emit('verify-ring-payment', { callId, callee, amount: ring || floorFor(prec), memo, currency: cur, escrow: calleeEscrow }, ({ verified: v2 }) => {
+            socket.emit('verify-ring-payment', { callId, txId, callee, amount: ring || floorFor(prec), memo, currency: cur, escrow: calleeEscrow }, ({ verified: v2 }) => {
               if (v2) {
-                socket.emit('verify-deposit-payment', { callId, callee, totalAmount: total, depositAmount: deposit, connectAmount: connect, memo, currency: cur, escrow: calleeEscrow });
+                socket.emit('verify-deposit-payment', { callId, txId, callee, totalAmount: total, depositAmount: deposit, connectAmount: connect, memo, currency: cur, escrow: calleeEscrow });
                 addLobbyMsg({type:'system',text:`✓ Payment verified — calling @${callee}…`});
                 proceedWithCall(callee, callType, rates, callId);
               } else {
@@ -3638,7 +3655,7 @@ async function confirmPayAndCall() {
           return;
         }
         if (verified || total === 0) {
-          socket.emit('verify-deposit-payment', { callId, callee, totalAmount: total, depositAmount: deposit, connectAmount: connect, memo, currency: cur, escrow: calleeEscrow });
+          socket.emit('verify-deposit-payment', { callId, txId, callee, totalAmount: total, depositAmount: deposit, connectAmount: connect, memo, currency: cur, escrow: calleeEscrow });
           addLobbyMsg({type:'system',text:`✓ Payment verified — calling @${callee}…`});
           proceedWithCall(callee, callType, rates, callId);
         } else {
@@ -3674,7 +3691,7 @@ async function confirmPayAndCall() {
           addLobbyMsg({type:'system',text:`Payment cancelled: ${reason}`});
           return;
         }
-        afterPaymentSuccess();
+        afterPaymentSuccess(keychainTxId(response));
       }
     );
   } else {
@@ -3693,7 +3710,7 @@ async function confirmPayAndCall() {
           addLobbyMsg({type:'system',text:`Payment cancelled: ${reason}`});
           return;
         }
-        afterPaymentSuccess();
+        afterPaymentSuccess(keychainTxId(response));
       }
     );
   }
@@ -4204,9 +4221,10 @@ function showTopUpPrompt() {
   const memo = `v4call:topup:${currentCallId}`;
   const onResult = (response) => {
     if (response && response.success) {
+      const txId = keychainTxId(response);   // server requires it (tx-anchored verify)
       addSystemMsg(`Top-up payment sent — verifying…`);
       setTimeout(() => {
-        rsock().emit('verify-topup-payment', { callId: currentCallId, amount: topupAmt, memo, currency: cur, escrow: calleeEscrow }, ({ verified }) => {
+        rsock().emit('verify-topup-payment', { callId: currentCallId, txId, amount: topupAmt, memo, currency: cur, escrow: calleeEscrow }, ({ verified }) => {
           if (!verified) addSystemMsg('⚠ Top-up verification delayed — funds are in escrow.');
         });
       }, isToken ? 6000 : 4000);
@@ -6557,7 +6575,7 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
   // If this fails the user hasn't burned the CNOOBS payment yet. If the gate
   // flow fails LATER, the DM rate payment is the cost of the broken upload —
   // surfaced in the catch path with a clear note.
-  let msgId = null, textMemo = null, textPaid = 0, textCurrency = 'HBD';
+  let msgId = null, textMemo = null, textPaid = 0, textCurrency = 'HBD', textTxId = null;
   if (mode === 'dm') {
     if (!dmContext || !dmContext.target) throw new Error('DM target missing');
 
@@ -6588,18 +6606,19 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
       const amtStr = qfmt(textPaid, dmPrec);
       setAttachStatus(`Paying ${amtStr} ${textCurrency} paid-DM rate (Keychain)…`);
       const isToken = (textCurrency !== 'HBD' && textCurrency !== 'HIVE');
-      const paid = isToken
+      const kcResp = isToken
         ? await new Promise(resolve => {
             const json = JSON.stringify({
               contractName: 'tokens', contractAction: 'transfer',
               contractPayload: { symbol: textCurrency, to: dmContext.escrow, quantity: amtStr, memo: textMemo }
             });
-            window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Transfer ${amtStr} ${textCurrency} (paid-DM rate)`, r => resolve(r.success));
+            window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Transfer ${amtStr} ${textCurrency} (paid-DM rate)`, r => resolve(r));
           })
         : await new Promise(resolve =>
-            window.hive_keychain.requestTransfer(myUsername, dmContext.escrow, amtStr, textMemo, textCurrency, r => resolve(r.success))
+            window.hive_keychain.requestTransfer(myUsername, dmContext.escrow, amtStr, textMemo, textCurrency, r => resolve(r))
           );
-      if (!paid) throw new Error('paid-DM rate cancelled — attachment not sent.');
+      if (!(kcResp && kcResp.success)) throw new Error('paid-DM rate cancelled — attachment not sent.');
+      textTxId = keychainTxId(kcResp);   // server requires it (tx-anchored verify)
     }
   }
 
@@ -6781,7 +6800,7 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
     setAttachStatus('Delivering to recipient…');
     socket.emit('dm-attachment', {
       ...envelope,
-      msgId, textMemo, textPaid, textCurrency
+      msgId, textMemo, textPaid, textTxId, textCurrency
     });
   } else {
     setAttachStatus('Broadcasting to room…');
