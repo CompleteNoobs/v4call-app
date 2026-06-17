@@ -958,6 +958,14 @@
 
         <form id="login-form" onsubmit="return false;">
           <div class="field">
+            <label for="node-host">v4call node</label>
+            <div class="input-wrap">
+              <input id="node-host" type="text" value="node.v4call.com" placeholder="node.v4call.com" autocomplete="off" autocapitalize="none" spellcheck="false" required/>
+            </div>
+            <p class="field-hint">The v4call-node you connect to for calls &amp; rooms. The default works for most users.</p>
+          </div>
+
+          <div class="field">
             <label for="hive-username">Hive username</label>
             <div class="input-wrap has-prefix">
               <span class="at-prefix">@</span>
@@ -1665,17 +1673,56 @@
 <script>
 // ── nodeBase(): the v4call-node this client talks to ───────────────────────
 // Decoupling house rule: EVERY call to our own server goes through nodeBase(),
-// never a bare "/path". Defaults to location.origin, so behaviour is unchanged
-// today (the node still serves this page). A stored "v4call:node" override lets
-// the client point at a chosen node once the app is hosted/packaged separately.
+// never a bare "/path". This app is hosted separately from the node, so the node
+// is chosen on the login screen (#node-host, default DEFAULT_NODE) and persisted
+// to localStorage "v4call:node". The node runs the Nostr federation and the escrow
+// seam; this client only ever dials the one node it logs into.
 // (Does NOT apply to the federated cross-server room socket — see openFederatedRoomSocket.)
+const DEFAULT_NODE = 'https://node.v4call.com';
+
+// Coerce a user-typed host into a clean http(s) origin. socket.io + fetch both
+// want http(s) (socket.io upgrades to ws/wss itself), so ws/wss are mapped through
+// and a bare host gets https://. Trailing slashes stripped.
+function normalizeNode(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return '';
+  s = s.replace(/^ws:\/\//i, 'http://').replace(/^wss:\/\//i, 'https://');
+  if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+  return s.replace(/\/+$/, '');
+}
+
 function nodeBase() {
   try {
     const override = localStorage.getItem('v4call:node');
-    if (override) return override.replace(/\/+$/, '');
-  } catch (e) { /* localStorage blocked → fall through to same-origin */ }
-  return location.origin;
+    if (override) return normalizeNode(override);
+  } catch (e) { /* localStorage blocked → fall through to default node */ }
+  return DEFAULT_NODE;
 }
+
+// Persist the node chosen on the login form. The socket below is built once at
+// load from nodeBase(); if the user picks a *different* node we re-store it and
+// reload so a fresh socket connects there (the const socket can't be re-pointed).
+function applyNodeChoice() {
+  const el  = document.getElementById('node-host');
+  const raw = el ? el.value.trim() : '';
+  if (!raw) return { ok: false, msg: 'Enter the v4call node to connect to.' };
+  const normalized = normalizeNode(raw);
+  if (!normalized) return { ok: false, msg: 'Enter a valid node address.' };
+  const connectedTo = nodeBase();                 // what `socket` was built with at load
+  try { localStorage.setItem('v4call:node', normalized); } catch (e) { /* ignore */ }
+  return { ok: true, host: normalized.replace(/^https?:\/\//, ''), changed: normalized !== connectedTo };
+}
+
+// Pre-fill the login node field from a stored override (HTML default = node.v4call.com).
+(function initNodeField() {
+  try {
+    const el = document.getElementById('node-host');
+    if (!el) return;
+    const stored = (localStorage.getItem('v4call:node') || '').trim();
+    if (stored) el.value = stored.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '').replace(/\/+$/, '');
+  } catch (e) { /* ignore */ }
+})();
+
 const socket = io(nodeBase());
 // MY_SERVER_DOMAIN is populated from location.host for federated UX.
 const MY_SERVER_DOMAIN = location.host;
@@ -1956,6 +2003,9 @@ async function hiveLogin() {
   const statEl = document.getElementById('login-status');
   const btn    = document.getElementById('login-btn');
   errEl.textContent = ''; statEl.textContent = '';
+  const nodeChoice = applyNodeChoice();
+  if (!nodeChoice.ok)     { errEl.textContent = nodeChoice.msg; return; }
+  if (nodeChoice.changed) { statEl.textContent = `Connecting to ${nodeChoice.host}… sign in again once it reloads.`; setTimeout(() => location.reload(), 600); return; }
   if (!usernameRaw) { errEl.textContent = 'Please enter your Hive username.'; return; }
   if (!privKeyRaw)  { errEl.textContent = 'Please enter your posting private key.'; return; }
   btn.disabled = true; statEl.textContent = 'Parsing key…';
@@ -2009,6 +2059,9 @@ async function keychainLogin() {
   const btn    = document.getElementById('keychain-login-btn');
   errEl.textContent = ''; statEl.textContent = '';
 
+  const nodeChoice = applyNodeChoice();
+  if (!nodeChoice.ok)     { errEl.textContent = nodeChoice.msg; return; }
+  if (nodeChoice.changed) { statEl.textContent = `Connecting to ${nodeChoice.host}… sign in again once it reloads.`; setTimeout(() => location.reload(), 600); return; }
   if (!usernameRaw) { errEl.textContent = 'Please enter your Hive username.'; return; }
   if (!window.hive_keychain) { errEl.textContent = 'Hive Keychain not detected. Install it from hive-keychain.com or use the key login below.'; return; }
 
