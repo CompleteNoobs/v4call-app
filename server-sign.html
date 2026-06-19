@@ -265,6 +265,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@hiveio/dhive@1.3.2/dist/dhive.js"></script>
+<!-- node↔app shared contract (vendored, byte-identical with v4call-node/shared/).
+     Defines window.V4callWellKnown.buildDomainProofPayload — the canonical string
+     this page signs and the node verifies. Host the whole folder so shared/ travels. -->
+<script src="shared/v4call-wellknown.js"></script>
 <script type="module">
 // ── nostr-tools loader (Nostr attestation signing + verification) ─────
 // Exposes the bits we need on window.nGate so the rest of the page (which
@@ -384,27 +388,10 @@ function toggleExpiry() {
 // Hive canonical preserves backward compatibility with v4call's existing
 // federation code, which expects the 9-or-12-field shape.
 function buildPayload(obj) {
-  const base = [
-    obj.claim,
-    obj.domain,
-    obj.hive_account,
-    obj.escrow,
-    obj.fee_account,
-    obj.federation_ws,
-    obj.issued,
-    obj.expires || '',
-    obj.nonce
-  ];
-  const relays  = Array.isArray(obj.nostr_relays) ? obj.nostr_relays.filter(Boolean) : [];
-  const hasNostr = !!(obj.nostr_npub || obj.nostr_hex || relays.length);
-  if (hasNostr) {
-    base.push(
-      obj.nostr_npub || '',
-      obj.nostr_hex  || '',
-      relays.join(',')
-    );
-  }
-  return base.join('|');
+  // Delegated to the vendored node↔app shared module so this page signs exactly
+  // the string the node (v4call-node/server.js) recomputes to verify. Behaviour
+  // is unchanged — same 9-field base + conditional 3-field Nostr append.
+  return window.V4callWellKnown.buildDomainProofPayload(obj);
 }
 
 function collectFields() {
