@@ -1,0 +1,437 @@
+{{:LICENCE_HEADER_MIT}}
+
+
+= v4call-app — Host the Client on Alpine Linux (v4call.com) =
+
+From CompleteNoobs
+
+This guide stands up '''v4call-app''' — the v4call client bundle (desktop + mobile layouts, the login/layout picker, and the operator tool pages) — as a plain static site on a fresh Alpine Linux box, served over HTTPS at <code>v4call.com</code> (the bare root domain, '''not''' <code>app.v4call.com</code>).
+
+'''v4call-app has no server process and no money key.''' It's HTML/CSS/JS with zero build step. The only jobs on this box are: serve the files, terminate TLS, and (if you host the client on a different domain than your node, which is the normal case) make sure the node's CORS config allows this origin. That last part is the "CORS testing" this guide exists for — see [[#Step_9:_Point_the_Client_at_a_Node_+_Verify_CORS|Step 9]].
+
+'''Source code''': <code>v4call-app</code> [https://github.com/CompleteNoobs/v4call-app https://github.com/CompleteNoobs/v4call-app]
+
+'''Version''': v4call-app 0.1.0 · pairs with any v4call-node (this doc assumes the default node, <code>node.v4call.com</code>).
+
+'''Source of truth for the split''': <code>handover-decoupling.md</code> in the project root · see also <code>v4call-node/walkthrough.wiki</code> for the server side of this same relationship (its Step 14 "Connect the Client" and Step 7 <code>CORS_ALLOWED_ORIGINS</code> notes are the node-side half of this guide).
+
+'''End result''': a patched, firewalled, key-only-SSH Alpine host running Nginx as a plain static file server, serving the whole <code>v4call-app</code> folder over HTTPS at <code>https://v4call.com</code>, with <code>index.html</code> (the landing page, links to every page + the login screen) at the root — and a confirmed round-trip to a v4call-node running on a different origin (CORS working both ways).
+
+== Contents ==
+
+* [[#What_You_Are_Building|1 What You Are Building]]
+* [[#What_You_Need|2 What You Need]]
+* [[#Step_1:_First_Login_and_Recon|3 Step 1: First Login and Recon]]
+* [[#Step_2:_Point_the_Domain_at_the_Server|4 Step 2: Point the Domain at the Server]]
+* [[#Step_3:_Patch_the_System_+_Automatic_Updates|5 Step 3: Patch the System + Automatic Updates]]
+* [[#Step_4:_Firewall_(SSH_+_HTTP_+_HTTPS_only)|6 Step 4: Firewall (SSH + HTTP + HTTPS only)]]
+* [[#Step_5:_Harden_SSH_+_a_Deploy_User|7 Step 5: Harden SSH + a Deploy User]]
+* [[#Step_6:_Install_Nginx_+_Certbot|8 Step 6: Install Nginx + Certbot]]
+* [[#Step_7:_Get_the_Code|9 Step 7: Get the Code]]
+* [[#Step_8:_Nginx_—_HTTP_First,_Then_HTTPS|10 Step 8: Nginx — HTTP First, Then HTTPS]]
+* [[#Step_9:_Point_the_Client_at_a_Node_+_Verify_CORS|11 Step 9: Point the Client at a Node + Verify CORS]]
+* [[#Step_10:_Test_Everything|12 Step 10: Test Everything]]
+* [[#Updating_the_Site|13 Updating the Site]]
+* [[#Security_Notes|14 Security Notes]]
+* [[#Common_Problems_and_Fixes|15 Common Problems and Fixes]]
+* [[#Quick_Reference|16 Quick Reference]]
+
+== What You Are Building ==
+
+{| class="wikitable"
+|-
+! Piece !! Role !! Runs where
+|-
+| '''v4call-app''' (this host) || The client: <code>index.html</code> landing page, <code>desktop-app.html</code> / <code>mobile-app.html</code>, <code>select.html</code> layout+node picker, and the operator tool pages. Pure static files. || <code>v4call.com</code> (this box)
+|-
+| '''v4call-node''' (elsewhere) || The actual server — login routing, presence, federation, chat, escrow. This is who the browser talks to over Socket.io + HTTP once you've logged in. || e.g. <code>node.v4call.com</code>, a separate box
+|}
+
+Because the client and the node are on '''different domains''' (<code>v4call.com</code> vs. <code>node.v4call.com</code>), every request the browser makes from a page on this box to the node is '''cross-origin''' — that's what CORS governs. This box needs no CORS configuration of its own (it's not answering API calls); the node needs <code>CORS_ALLOWED_ORIGINS</code> to include <code>https://v4call.com</code>. Step 9 covers both testing and fixing this.
+
+== What You Need ==
+
+* '''A fresh Alpine Linux 3.23 server''' with a public IP and root SSH access via key (a 1 vCPU / 1 GB instance is plenty — this box serves static files only). A DNS name is <code>v4call.com</code> per this guide, but any domain works the same way.
+* '''Your SSH private key''' for the box. All commands below assume you connect as <code>root</code> with that key.
+* '''A running v4call-node''' to point the client at (or use the shipped default, <code>node.v4call.com</code> — see <code>v4call-node/walkthrough.wiki</code> to run your own).
+
+'''Convention''': set this once in your local shell so every command is copy-paste:
+
+ export APP=root@v4call.com
+ export KEY=~/.ssh/vultr
+ alias appssh='ssh -i $KEY $APP'
+
+== Step 1: First Login and Recon ==
+
+ ssh -i ~/.ssh/vultr root@v4call.com
+
+Know what you're starting from — a fresh Alpine cloud image is tiny (busybox userland, OpenRC init, <code>apk</code> package manager, no systemd):
+
+ cat /etc/alpine-release          # 3.23.x
+ uname -a                         # kernel + arch
+ rc-status                        # running OpenRC services (expect: networking, chronyd, sshd)
+ ss -tlnp                         # listening sockets — should be ONLY :22 (sshd)
+
+== Step 2: Point the Domain at the Server ==
+
+Log into your DNS provider and add an A record (and, if you want <code>www.v4call.com</code> to also work, a second one):
+
+{| class="wikitable"
+|-
+! Field !! Value
+|-
+| Type || A
+|-
+| Name || <code>@</code> (root domain — '''not''' <code>app</code>; this is deliberately <code>v4call.com</code>, not <code>app.v4call.com</code>)
+|-
+| Value || Your VPS IP address
+|-
+| TTL || 300
+|}
+
+Optionally repeat with Name <code>www</code> pointed at the same IP if you want both to resolve. DNS takes a few minutes:
+
+ nslookup v4call.com
+
+Must show your VPS IP before [[#Step_8:_Nginx_—_HTTP_First,_Then_HTTPS|Step 8]] gets to the certificate. Continue with the other steps while you wait.
+
+== Step 3: Patch the System + Automatic Updates ==
+
+ apk update
+ apk upgrade
+
+'''⚠ If the kernel was upgraded''' (<code>linux-virt</code> shows in the upgrade list), reboot before continuing — a running kernel whose modules were just replaced on disk can misbehave (this bit the firewall step on other Alpine boxes in this project; better to reboot now than debug it later):
+
+ reboot
+ # wait ~40s, then reconnect
+ uname -r
+
+'''Automatic updates''' via busybox <code>crond</code> (Alpine has no <code>unattended-upgrades</code>):
+
+<pre>
+cat > /etc/periodic/daily/apk-upgrade <<'EOF'
+#!/bin/sh
+apk update --quiet
+apk upgrade --no-interactive 2>&1 | logger -t apk-upgrade
+EOF
+chmod +x /etc/periodic/daily/apk-upgrade
+rc-update add crond default
+rc-service crond start
+/etc/periodic/daily/apk-upgrade        # dry-run once, should run cleanly
+</pre>
+
+== Step 4: Firewall (SSH + HTTP + HTTPS only) ==
+
+Unlike a money box, this host has to accept public web traffic — so the inbound allow-list is SSH + 80 + 443, everything else dropped, all outbound allowed.
+
+ apk add nftables
+
+<pre>
+cat > /etc/nftables.nft <<'EOF'
+#!/usr/sbin/nft -f
+# v4call-app static site firewall. Inbound: SSH + HTTP + HTTPS only.
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority filter; policy drop;
+    iif "lo" accept
+    ct state established,related accept
+    ct state invalid drop
+    ip protocol icmp accept                 comment "ping (IPv4)"
+    ip6 nexthdr ipv6-icmp accept            comment "ping (IPv6)"
+    tcp dport 22 ct state new accept        comment "SSH"
+    tcp dport 80 ct state new accept        comment "HTTP (also the ACME challenge)"
+    tcp dport 443 ct state new accept       comment "HTTPS"
+  }
+  chain forward { type filter hook forward priority filter; policy drop; }
+  chain output { type filter hook output priority filter; policy accept; }
+}
+EOF
+</pre>
+
+'''Apply it safely''' — arm a 3-minute auto-flush before loading, in case of a typo that locks you out:
+
+ setsid sh -c "sleep 180 && nft flush ruleset" >/dev/null 2>&1 &
+ nft -c -f /etc/nftables.nft && echo "syntax OK"
+ rc-update add nftables default
+ rc-service nftables start
+ nft list ruleset
+
+From a '''second terminal''', confirm a fresh SSH connection still works, then cancel the safety net back in the first session:
+
+ ssh -i ~/.ssh/vultr root@v4call.com 'echo through-firewall-ok'
+ # back in session 1:
+ pkill -f "nft flush ruleset"
+
+== Step 5: Harden SSH + a Deploy User ==
+
+'''Deploy user''' — the site is public web content (no secrets in it), so plain world-readable files are fine; there's no money-box-style lockdown needed here. Still, don't run <code>git</code> as root out of habit:
+
+ adduser -D -h /var/www deploy
+ mkdir -p /var/www
+ chown deploy:deploy /var/www
+
+'''SSH hardening''' — key-only auth; root may log in only with a key:
+
+<pre>
+cat > /etc/ssh/sshd_config.d/10-hardening.conf <<'EOF'
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+EOF
+</pre>
+
+ sshd -t && echo "config OK"
+ rc-service sshd reload
+ sshd -T | grep -iE '^(passwordauthentication|permitrootlogin|kbdinteractiveauthentication) '
+
+Test a fresh connection before trusting it (a second terminal):
+
+ ssh -i ~/.ssh/vultr root@v4call.com 'echo key-auth-ok'
+
+== Step 6: Install Nginx + Certbot ==
+
+ apk add nginx certbot
+
+Confirm and enable at boot (don't start yet — no site config exists):
+
+ nginx -v
+ rc-update add nginx default
+
+Alpine's nginx package reads <code>/etc/nginx/nginx.conf</code>, which includes every file under '''<code>/etc/nginx/http.d/*.conf</code>''' — that directory is where the site config goes (there's no Debian-style <code>sites-available</code>/<code>sites-enabled</code> split on Alpine).
+
+== Step 7: Get the Code ==
+
+<code>v4call-app</code> is public — clone it straight in as the <code>deploy</code> user, directly into the web root:
+
+ su deploy -s /bin/sh -c 'git clone https://github.com/CompleteNoobs/v4call-app /var/www/v4call.com'
+ ls /var/www/v4call.com/index.html /var/www/v4call.com/desktop-app.html /var/www/v4call.com/vendor/socket.io.min.js
+
+'''⚠ The <code>vendor/</code> folder must travel with the HTML.''' <code>desktop-app.html</code> and <code>mobile-app.html</code> load <code>vendor/socket.io.min.js</code> via a relative path and call <code>io(nodeBase())</code> at the top of their script. If <code>vendor/</code> isn't sitting right next to the HTML (e.g. you copied one file instead of cloning the whole repo), <code>io</code> is undefined, the script throws, and login fails with a misleading error. Cloning the full repo (as above) already gets this right — just don't reorganize the folder afterward.
+
+== Step 8: Nginx — HTTP First, Then HTTPS ==
+
+'''Start HTTP-only.''' Putting the HTTPS block in before the certificate exists is the single most common way to break Nginx on a fresh box (crash-restart loop, and Certbot can't get a cert from a server that won't start). Always HTTP first, get the cert, then add HTTPS.
+
+ nano /etc/nginx/http.d/v4call-app.conf
+
+<pre>
+server {
+    listen 80;
+    listen [::]:80;
+    server_name v4call.com www.v4call.com;
+
+    root /var/www/v4call.com;
+    index index.html;
+
+    # Certbot challenge path — do not remove
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+</pre>
+
+ mkdir -p /var/www/certbot
+ rm -f /etc/nginx/http.d/default.conf   # ships with a placeholder server block; remove it
+ nginx -t && rc-service nginx start
+
+Test HTTP works end-to-end:
+
+ curl -I http://v4call.com/
+ curl -s http://v4call.com/index.html | grep -o '<title>[^<]*</title>'
+
+Should return <code>200</code> and the page title.
+
+'''Get the certificate''' — confirm the ACME challenge path actually serves through Nginx first (this is what Let's Encrypt checks):
+
+ mkdir -p /var/www/certbot/.well-known/acme-challenge
+ echo "test" > /var/www/certbot/.well-known/acme-challenge/testfile
+ curl http://v4call.com/.well-known/acme-challenge/testfile
+
+Must return <code>test</code>. Then request the certificate via the webroot:
+
+ certbot certonly --webroot -w /var/www/certbot \
+   -d v4call.com -d www.v4call.com \
+   --email your@email.com --agree-tos --no-eff-email
+
+(Drop <code>-d www.v4call.com</code> if you didn't add the <code>www</code> DNS record in Step 2.) Success looks like:
+
+<pre>
+Successfully received certificate.
+Certificate is saved at: /etc/letsencrypt/live/v4call.com/fullchain.pem
+Key is saved at:         /etc/letsencrypt/live/v4call.com/privkey.pem
+</pre>
+
+'''Auto-renewal''' — Alpine has no systemd timer, so add a periodic job (Certbot's own <code>--deploy-hook</code> reloads Nginx only when a renewal actually happens):
+
+<pre>
+cat > /etc/periodic/daily/certbot-renew <<'EOF'
+#!/bin/sh
+certbot renew --quiet --deploy-hook "rc-service nginx reload" 2>&1 | logger -t certbot-renew
+EOF
+chmod +x /etc/periodic/daily/certbot-renew
+</pre>
+
+'''Now switch to HTTPS''' — replace the config:
+
+ nano /etc/nginx/http.d/v4call-app.conf
+
+<pre>
+# HTTP — certbot challenge + redirect to HTTPS
+server {
+    listen 80;
+    listen [::]:80;
+    server_name v4call.com www.v4call.com;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS — the static v4call-app site
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name v4call.com www.v4call.com;
+
+    ssl_certificate     /etc/letsencrypt/live/v4call.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/v4call.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header X-Content-Type-Options nosniff;
+
+    root /var/www/v4call.com;
+    index index.html;
+
+    gzip on;
+    gzip_types text/css application/javascript text/html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Long cache for the vendored, versioned JS lib; HTML stays uncached so
+    # edits show up on next refresh without a manual cache-bust.
+    location /vendor/ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+</pre>
+
+ nginx -t && rc-service nginx reload
+ curl -I https://v4call.com/
+
+== Step 9: Point the Client at a Node + Verify CORS ==
+
+The client already defaults to <code>node.v4call.com</code> (<code>DEFAULT_NODE</code> in <code>desktop-app.html</code> / <code>mobile-app.html</code>) — nothing to configure if that's the node you're using. To point it at a '''different''' node instead, either:
+
+* Open <code>https://v4call.com/select.html</code> and use the "Advanced: connect to a specific node" field, '''or'''
+* Open <code>https://v4call.com/desktop-app.html</code> directly and type the node's host into the '''v4call node''' field on the login screen.
+
+Both write the same <code>localStorage['v4call:node']</code> key that <code>nodeBase()</code> reads on every request.
+
+'''This is the CORS relationship, made concrete:''' the browser is on the <code>v4call.com</code> origin; the node answers from <code>node.v4call.com</code> (or wherever you pointed it). That's a cross-origin request, so on the '''node''', <code>CORS_ALLOWED_ORIGINS</code> must include this client's exact origin:
+
+ CORS_ALLOWED_ORIGINS=https://v4call.com
+
+(Add a comma-separated second entry for <code>https://www.v4call.com</code> if you also serve that host — the two are different origins as far as CORS is concerned, even though they're "the same site" to a person.) Restart the node after changing it.
+
+'''Verify CORS from the browser, not just curl''' — <code>curl</code> doesn't enforce CORS (only browsers do), so a passing <code>curl</code> request tells you the node is reachable, not that CORS is configured right. Open <code>https://v4call.com/desktop-app.html</code>, open DevTools → Console, and log in. A misconfigured node shows an explicit CORS error in the console (blocked cross-origin request) rather than a vague connection failure — see [[#Common_Problems_and_Fixes|Common Problems]] below for what that looks like and how to fix it.
+
+'''Sanity-check preflight from the command line''' (this simulates what the browser sends before the real request, and does show you the response headers even though it isn't itself CORS-enforced):
+
+ curl -i -X OPTIONS https://node.v4call.com/admin/balance \
+   -H "Origin: https://v4call.com" \
+   -H "Access-Control-Request-Method: GET"
+
+Look for <code>Access-Control-Allow-Origin: https://v4call.com</code> in the response. If it's missing or says a different origin, fix <code>CORS_ALLOWED_ORIGINS</code> on the node and restart it.
+
+== Step 10: Test Everything ==
+
+Run these from your laptop after Steps 8–9:
+
+;Landing page
+: <code>curl -I https://v4call.com/</code> → <code>200</code>.
+;Every page loads
+: <code>for p in desktop-app mobile-app select info admin-peers server-sign server-announce user-announce nostr-gen qr-gen bitcoin-gen; do curl -s -o /dev/null -w "%{http_code} $p\n" https://v4call.com/$p.html; done</code> → all <code>200</code>.
+;vendor/ travels with the HTML
+: <code>curl -I https://v4call.com/vendor/socket.io.min.js</code> → <code>200</code>.
+;Screenshots on the landing page
+: <code>curl -I https://v4call.com/v4call-web-pics/main-page-default.png</code> → <code>200</code>.
+;Certificate
+: <code>curl -vI https://v4call.com/ 2>&1 | grep -i "subject:"</code> → shows <code>v4call.com</code>.
+;End-to-end
+: Open <code>https://v4call.com/desktop-app.html</code> in a browser, log in with Hive Keychain against your node. Landing in the lobby confirms client → CORS → node → Hive is all working.
+
+== Updating the Site ==
+
+Because this is a static site with no build step, an update is just a fresh checkout — no Nginx reload needed for content changes (Nginx re-reads files from disk on every request):
+
+ su deploy -s /bin/sh -c 'cd /var/www/v4call.com && git pull'
+
+Only reload Nginx if you changed <code>/etc/nginx/http.d/v4call-app.conf</code> itself:
+
+ nginx -t && rc-service nginx reload
+
+== Security Notes ==
+
+* '''There's no secret on this box.''' The client holds no money key and no admin key — it's public web content by design. The security posture here is standard web-server hygiene (patched, firewalled, key-only SSH), not money-box isolation.
+* '''Minimal surface''' — three inbound ports (SSH, HTTP, HTTPS), default-deny firewall otherwise, patched daily.
+* '''CORS is enforced by the node, not this box.''' This host doesn't need — and doesn't have — any CORS configuration. If you see CORS errors, the fix is always on the node side (<code>CORS_ALLOWED_ORIGINS</code>), never here.
+
+== Common Problems and Fixes ==
+
+=== nftables: "Your kernel lacks nftables support" / "Unable to initialize Netlink socket" ===
+You upgraded the kernel (<code>apk upgrade</code> pulled <code>linux-virt</code>) but haven't rebooted. '''Reboot''', then start nftables.
+
+=== Nginx <code>[emerg] cannot load certificate ... No such file</code> ===
+You enabled the HTTPS block before the certificate existed. Revert to the HTTP-only config, reload, get the cert, then re-add HTTPS (Step 8).
+
+=== <code>certbot certonly</code> fails with a timeout or connection refused ===
+DNS hasn't propagated yet (recheck <code>nslookup v4call.com</code>), or the firewall isn't actually allowing port 80 (recheck <code>nft list ruleset</code>), or the ACME challenge file test in Step 8 didn't actually return <code>test</code> — fix that first before retrying Certbot.
+
+=== Blank page / 404 at <code>https://v4call.com/</code> ===
+Check <code>root</code> in the Nginx config points at <code>/var/www/v4call.com</code> (not a subdirectory), that <code>index.html</code> exists there, and that <code>index index.html;</code> is present. <code>nginx -T | grep -A3 'server_name v4call.com'</code> dumps the effective config.
+
+=== Client console: <code>io is not defined</code> or <code>Cannot access 'HIVE_API' before initialization</code> ===
+The <code>vendor/</code> folder didn't come along with the HTML (see the warning in Step 7). Confirm <code>curl -I https://v4call.com/vendor/socket.io.min.js</code> returns <code>200</code>; if not, re-clone the whole repo rather than copying individual files.
+
+=== Browser console shows a CORS error (e.g. "No 'Access-Control-Allow-Origin' header") ===
+This client's origin (<code>https://v4call.com</code>, or <code>https://www.v4call.com</code> if that's what you're on) isn't in the node's <code>CORS_ALLOWED_ORIGINS</code>. Fix it on the '''node''' (not here — this box has nothing to configure), matching the exact scheme+host, then restart the node. Re-run the preflight check from Step 9 to confirm before retesting in the browser. A blank <code>CORS_ALLOWED_ORIGINS</code> on the node reflects any origin — fine for a quick test, not for production.
+
+=== admin-peers.html gets a CORS or 403 error ===
+Same root cause as above (origin not allowed) or a wrong admin key — the node already allows the <code>Authorization</code> header and answers the <code>OPTIONS</code> preflight once the origin is correct. Test the endpoint directly with <code>curl -H "Authorization: Bearer KEY" https://node.example.com/debug-state</code> to isolate "wrong key" from "CORS not configured."
+
+=== Screenshots on the landing page are broken (404) ===
+<code>v4call-web-pics/</code> didn't come along with the clone, or was deleted. It should sit next to <code>index.html</code> — <code>ls /var/www/v4call.com/v4call-web-pics/</code> should list ~26 PNGs; re-clone if it's missing.
+
+=== Site doesn't reflect a recent <code>git pull</code> ===
+Nothing to restart for a static site, but the '''browser''' may be caching aggressively (especially <code>vendor/</code>, which has a 30-day cache header). Hard-refresh, or bump the cache with a query string if you change vendored files often.
+
+== Quick Reference ==
+
+;Versions (Alpine 3.23)
+: Nginx (apk) · Certbot (apk) · no Node.js needed on this box at all — v4call-app has zero build step.
+;Service control
+: <code>rc-service nginx {start|stop|restart|reload|status}</code> · config: <code>/etc/nginx/http.d/v4call-app.conf</code> · enable at boot: <code>rc-update add nginx default</code>.
+;Firewall
+: <code>nft list ruleset</code> (audit) · SSH + 80 + 443 inbound only · config <code>/etc/nftables.nft</code>.
+;The site
+: <code>/var/www/v4call.com</code> (git clone of v4call-app) · update with <code>git pull</code>, no reload needed for content.
+;Certificates
+: <code>/etc/letsencrypt/live/v4call.com/</code> · renewal: <code>/etc/periodic/daily/certbot-renew</code>.
+;CORS (configured on the NODE, not here)
+: node's <code>.env</code> → <code>CORS_ALLOWED_ORIGINS=https://v4call.com</code> (add <code>https://www.v4call.com</code> too if serving both) → restart the node.
+;Source of truth
+: <code>v4call-node/walkthrough.wiki</code> Step 14 ("Connect the Client") + Step 7 (<code>CORS_ALLOWED_ORIGINS</code>) for the node-side half of this relationship · <code>handover-decoupling.md</code>.

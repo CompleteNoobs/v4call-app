@@ -1,0 +1,1202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>v4call — paid, encrypted calls on Hive</title>
+<meta name="description" content="v4call: know your caller by cryptographic proof. Paid, encrypted voice, video and chat on the Hive blockchain. MIT licensed, self-hostable.">
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%2300d18f'/><text x='50%25' y='58%25' font-family='monospace' font-size='34' fill='%23000' text-anchor='middle' font-weight='700'>v4</text></svg>">
+<!--
+  v4call-app landing page. Adapted from the pre-decoupling monolith's
+  public/index.html: this repo is the CLIENT only (no server, no money key),
+  so the primary call-to-action goes to desktop-app.html instead of a
+  same-origin app.html, and any content that asserted this domain WAS a
+  running v4call-node (fee tables, "live servers" lists) has been genericized
+  or pointed at node.v4call.com, the node this client dials by default
+  (see desktop-app.html's DEFAULT_NODE). See walkthrough.wiki in this repo
+  for how to host this page itself.
+-->
+<style>
+/* ----- reset + base ----- */
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,Helvetica,Arial,sans-serif;
+  font-size:17px; line-height:1.6;
+  color:#e6e8ec; background:#0e1116;
+  -webkit-font-smoothing:antialiased;
+}
+img{max-width:100%; height:auto; display:block; border-radius:8px}
+a{color:#5ad6ff; text-decoration:none}
+a:hover{text-decoration:underline}
+code,pre,kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{background:#1a1f29; padding:.1em .35em; border-radius:4px; font-size:.92em; color:#7ff0c5}
+pre{background:#0a0d12; padding:1rem 1.1rem; border-radius:10px; overflow-x:auto; border:1px solid #1f242d; font-size:.9rem; line-height:1.55}
+hr{border:0; border-top:1px solid #1f242d; margin:3rem 0}
+h1,h2,h3{line-height:1.25; font-weight:700; color:#f4f6fa}
+h1{font-size:clamp(2rem,5vw,3.4rem); margin:0 0 .8rem}
+h2{font-size:clamp(1.5rem,3.4vw,2.1rem); margin:0 0 1rem; padding-top:.5rem}
+h3{font-size:1.18rem; margin:1.6rem 0 .6rem}
+p{margin:0 0 1rem}
+ul{margin:.4rem 0 1.2rem; padding-left:1.3rem}
+li{margin:.25rem 0}
+
+/* ----- layout ----- */
+.wrap{max-width:1080px; margin:0 auto; padding:0 1.2rem}
+section{padding:3.2rem 0; border-bottom:1px solid #161b22}
+section:last-of-type{border-bottom:none}
+
+/* ----- top bar ----- */
+.bar{
+  position:sticky; top:0; z-index:30;
+  background:rgba(14,17,22,.85); backdrop-filter:blur(10px);
+  border-bottom:1px solid #1c222c;
+}
+.bar-in{display:flex; align-items:center; justify-content:space-between; padding:.7rem 1.2rem; max-width:1080px; margin:0 auto}
+.logo{font-weight:800; letter-spacing:.5px; color:#7ff0c5}
+.logo span{color:#e6e8ec; font-weight:400}
+.nav a{margin-left:1.2rem; color:#c9cfd9; font-size:.92rem}
+.nav a:hover{color:#7ff0c5; text-decoration:none}
+@media(max-width:680px){ .nav{display:none} }
+
+/* ----- hero ----- */
+.hero{
+  padding:5rem 0 4rem;
+  background:
+    radial-gradient(900px 500px at 80% -10%,rgba(0,209,143,.10),transparent 60%),
+    radial-gradient(700px 400px at 10% 110%,rgba(90,214,255,.08),transparent 60%);
+  text-align:left;
+}
+.hero .lead{font-size:1.18rem; color:#c9cfd9; max-width:780px; margin:0 0 1.6rem}
+.hero .pillline{color:#9aa3af; font-size:.9rem; margin-bottom:1.4rem; font-family:ui-monospace,monospace; letter-spacing:.4px}
+.hero .pillline span{color:#7ff0c5}
+.server-fee{color:#f5c451; font-weight:700; font-size:1.08rem; margin:.2rem 0 1.3rem; letter-spacing:.2px}
+
+.cta{display:flex; gap:.8rem; flex-wrap:wrap; margin-top:1.6rem}
+.btn{
+  display:inline-block; padding:.85rem 1.4rem; border-radius:8px;
+  font-weight:600; font-size:.98rem;
+  border:1px solid transparent; cursor:pointer;
+  transition:transform .08s ease, background .2s, border-color .2s;
+}
+.btn:hover{text-decoration:none; transform:translateY(-1px)}
+.btn-primary{background:#00d18f; color:#001a10; border-color:#00d18f}
+.btn-primary:hover{background:#33dca8}
+.btn-ghost{background:transparent; color:#e6e8ec; border-color:#2a313c}
+.btn-ghost:hover{border-color:#7ff0c5; color:#7ff0c5}
+
+/* ----- info cards ----- */
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:1rem; margin:1.4rem 0}
+.card{
+  background:#141921; border:1px solid #1f262f; border-radius:12px; padding:1.2rem 1.3rem;
+}
+.card h3{margin-top:0}
+.card p{margin:0; color:#c4cbd5; font-size:.96rem}
+.kicker{
+  display:inline-block; padding:.2rem .55rem; border-radius:999px;
+  background:#0c1f17; color:#7ff0c5; font-size:.72rem; font-weight:600;
+  letter-spacing:.4px; text-transform:uppercase; margin-bottom:.4rem;
+}
+
+/* ----- page-link cards (sitemap) ----- */
+.card.link-card{display:block; text-decoration:none; transition:border-color .15s, transform .05s}
+.card.link-card:hover{border-color:#7ff0c5; text-decoration:none}
+.card.link-card:active{transform:translateY(1px)}
+.card.link-card h3{color:#f4f6fa}
+
+/* ----- screenshots ----- */
+.shot{margin:1.4rem 0}
+.shot img{border:1px solid #1f262f; background:#0a0d12}
+.shot .cap{color:#9aa3af; font-size:.85rem; margin-top:.5rem; text-align:center}
+.shot-row{display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin:1.4rem 0}
+@media(max-width:700px){ .shot-row{grid-template-columns:1fr} }
+
+/* ----- callout boxes ----- */
+.note{
+  background:#11171f; border-left:3px solid #5ad6ff;
+  padding:.9rem 1.1rem; border-radius:0 8px 8px 0; margin:1.2rem 0;
+  color:#c9cfd9; font-size:.96rem;
+}
+.note.warn{border-left-color:#ffb84d; background:#1d1810}
+.note.warn strong{color:#ffd28a}
+.note strong{color:#7ff0c5}
+
+/* ----- table ----- */
+table{width:100%; border-collapse:collapse; margin:1rem 0; font-size:.95rem}
+th,td{text-align:left; padding:.7rem .8rem; border-bottom:1px solid #1f262f}
+th{color:#9aa3af; font-weight:600; background:#11161e}
+td code{color:#7ff0c5}
+
+/* ----- modal ----- */
+.modal-bg{
+  position:fixed; inset:0; background:rgba(0,0,0,.78);
+  display:none; align-items:center; justify-content:center; z-index:100; padding:1rem;
+}
+.modal-bg.on{display:flex}
+.modal{
+  background:#161b24; border:1px solid #2a313c; border-radius:14px;
+  max-width:560px; padding:1.6rem 1.7rem; color:#e6e8ec;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);
+}
+.modal h2{margin-top:0; color:#ffb84d}
+.modal p{color:#c9cfd9}
+.modal-actions{display:flex; gap:.7rem; justify-content:flex-end; margin-top:1.2rem}
+
+/* ----- lightbox ----- */
+.lightbox{
+  position:fixed; inset:0; background:rgba(0,0,0,.92);
+  display:none; align-items:center; justify-content:center; z-index:200; padding:1rem;
+  cursor:zoom-out;
+}
+.lightbox.on{display:flex}
+.lightbox img{max-width:96vw; max-height:92vh; border-radius:6px; box-shadow:0 10px 50px rgba(0,0,0,.6)}
+.lightbox-close{
+  position:absolute; top:14px; right:18px;
+  background:rgba(20,25,33,.85); color:#e6e8ec;
+  border:1px solid #2a313c; border-radius:8px;
+  width:42px; height:42px; font-size:1.2rem; font-weight:700;
+  cursor:pointer; line-height:1;
+}
+.lightbox-close:hover{border-color:#7ff0c5; color:#7ff0c5}
+
+/* ----- footer ----- */
+footer{padding:2.5rem 0 3rem; color:#8a929c; font-size:.9rem; text-align:center; border-top:1px solid #1c222c}
+footer a{color:#5ad6ff}
+.tagline{color:#7ff0c5; font-family:ui-monospace,monospace; letter-spacing:.5px; margin-top:.6rem}
+
+/* ----- misc ----- */
+.muted{color:#9aa3af}
+.small{font-size:.88rem}
+.anchor{display:block; position:relative; top:-60px; visibility:hidden; height:0}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     FIRST-VISIT WARNING MODAL
+     This is a live test bed, restarts happen, etc.
+     Dismissed state is stored in localStorage.
+     ============================================================ -->
+<div class="modal-bg" id="testWarning" role="dialog" aria-modal="true" aria-labelledby="warnTitle">
+  <div class="modal">
+    <h2 id="warnTitle">Heads up — proof of concept + analytics</h2>
+    <p>
+      <strong style="color:#ff7676;">⚠ Proof of concept — not for real use.</strong>
+      v4call (and its sister projects <strong>nGate</strong> and
+      <strong>IPFS-Gate</strong>) are proof-of-concept builds by independent
+      builders, <strong>not production software</strong>. They are
+      <strong>not safe to use</strong> and <strong>not recommended for
+      general users</strong> — they are provided for developers who want to
+      review the code and are willing to take the risks of an early,
+      quickly-built concept. Treat everything as a demo, not a service.
+    </p>
+    <p>
+      This client defaults to the <strong>node.v4call.com</strong> node, a live
+      development device that gets updated and restarted often. Point it at a
+      different node any time from the login screen.
+    </p>
+    <p>
+      A restart while a call or escrow payment is in flight may cause errors
+      that are still being worked on. Use at your own risk.
+    </p>
+    <p>
+      This site uses <strong>Google Analytics</strong> to count visits and
+      help guide development. GA sets cookies in your browser. You can
+      decline and still browse the page; analytics simply won&rsquo;t load.
+    </p>
+    <p class="small muted">
+      Your choice is remembered in one <code>localStorage</code> key
+      (<code>v4call_consent</code>). Clear it any time to see this prompt again.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost"   onclick="consent('declined')">Decline analytics</button>
+      <button class="btn btn-primary" onclick="consent('accepted')">Accept &amp; continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     CONFIG — operators self-hosting this page can edit these.
+     ============================================================ -->
+<script>
+  // Self-hosters: edit these three values for your server.
+  const CONFIG = {
+    SERVER_FEE_PERCENT: null,             // e.g. 2 (means 2%) to hard-set it; leave null to auto-fetch this server's live fee from /api/info (falls back to the test-fed table if unavailable)
+    SERVER_NAME:        null,             // e.g. "call.example.com"
+    GA_MEASUREMENT_ID:  'G-XXXXXXXXXX',   // paste your GA4 measurement ID; leave as-is to disable analytics
+  };
+
+  // ---- consent ----
+  function loadGA(){
+    const id = CONFIG.GA_MEASUREMENT_ID;
+    if(!id || id === 'G-XXXXXXXXXX') return; // not configured
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(id);
+    document.head.appendChild(s);
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function(){ dataLayer.push(arguments); };
+    gtag('js', new Date());
+    gtag('config', id, { anonymize_ip: true });
+  }
+  function consent(choice){
+    try{ localStorage.setItem('v4call_consent', choice); }catch(e){}
+    document.getElementById('testWarning').classList.remove('on');
+    if(choice === 'accepted') loadGA();
+  }
+
+  // ---- lightbox ----
+  function openLightbox(src, alt){
+    const lb = document.getElementById('lightbox');
+    const img = document.getElementById('lightboxImg');
+    img.src = src; img.alt = alt || '';
+    lb.classList.add('on');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLightbox(){
+    document.getElementById('lightbox').classList.remove('on');
+    document.getElementById('lightboxImg').src = '';
+    document.body.style.overflow = '';
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    // consent modal: show only on first visit
+    let prior=null; try{ prior = localStorage.getItem('v4call_consent'); }catch(e){}
+    if(prior === 'accepted') loadGA();
+    else if(prior !== 'declined') document.getElementById('testWarning').classList.add('on');
+
+    // Platform fee display, in priority order:
+    //  1. operator-set CONFIG.SERVER_FEE_PERCENT (manual override) wins
+    //  2. otherwise ask THIS server's /api/info for its live MINIMUM fee, so the
+    //     page auto-updates when the operator changes DEFAULT_PLATFORM_FEE (no
+    //     manual edit). Other apps can scan the same endpoint across servers.
+    //     Note: this static client host normally has no /api/info of its own
+    //     (that lives on the v4call-node it talks to) — the fetch below simply
+    //     fails quietly and the static table stays, unless you proxy /api/info
+    //     from your node onto this same origin.
+    //  3. if neither is available (old server / offline), the static test-fed
+    //     table stays as-is.
+    const feeEl     = document.getElementById('feeTableWrap');
+    const feeBanner = document.getElementById('serverFeeBanner');
+    function applyServerFee(name, pct){
+      // Gold one-liner at the top of the hero…
+      if(feeBanner){
+        feeBanner.textContent = 'This server’s escrow fee is ' + pct + '%';
+        feeBanner.style.display = '';
+      }
+      // …plus the fuller note where the test-fed table was.
+      if(feeEl){
+        feeEl.innerHTML = '<p>This server (<strong>'+name+'</strong>) takes a minimum of '
+          + '<strong>'+pct+'%</strong> of escrow transactions as the platform fee. '
+          + 'It&rsquo;s a floor &mdash; the actual cut also depends on each user&rsquo;s rate post. '
+          + 'See the server&rsquo;s announcer post on Hive for the canonical value.</p>';
+      }
+    }
+    if(CONFIG.SERVER_FEE_PERCENT !== null){
+      applyServerFee(CONFIG.SERVER_NAME || 'this server', CONFIG.SERVER_FEE_PERCENT);
+    } else {
+      fetch('/api/info', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(info => {
+          if(info && typeof info.platform_fee_percent === 'number'){
+            applyServerFee(info.domain || info.name || 'this server', info.platform_fee_percent);
+          }
+          // else: server has no /api/info yet → banner stays hidden, static table stays
+        })
+        .catch(() => { /* offline / fetch blocked → banner stays hidden, static table stays */ });
+    }
+
+    // lightbox: any <img> inside a <section> becomes clickable
+    document.querySelectorAll('section img').forEach(img => {
+      img.style.cursor = 'zoom-in';
+      img.addEventListener('click', () => openLightbox(img.currentSrc || img.src, img.alt));
+    });
+    document.addEventListener('keydown', e => {
+      if(e.key === 'Escape') closeLightbox();
+    });
+  });
+</script>
+
+<!-- ============================================================
+     TOP BAR
+     ============================================================ -->
+<header class="bar">
+  <div class="bar-in">
+    <div class="logo">v4call <span>· paid encrypted calls on Hive</span></div>
+    <nav class="nav">
+      <a href="#what">What it is</a>
+      <a href="#walkthrough">Walkthrough</a>
+      <a href="#files">File transfer</a>
+      <a href="#announce">Announce yourself</a>
+      <a href="#federation">Federation</a>
+      <a href="#siblings">Siblings</a>
+      <a href="#run">Run your own</a>
+      <a href="#pages">Pages</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============================================================
+     HERO
+     ============================================================ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="pillline">PROOF&nbsp;OF&nbsp;CONCEPT &nbsp; · &nbsp; MIT&nbsp;LICENSED &nbsp; · &nbsp; v4call-app&nbsp;0.1.0 &nbsp; · &nbsp; HIVE&nbsp;BLOCKCHAIN &nbsp; · &nbsp; WEBRTC</div>
+    <p class="server-fee" style="display:block;color:#ff9090;border:1px solid rgba(255,118,118,0.3);background:rgba(255,118,118,0.07);border-radius:8px;padding:.55rem .8rem;margin:.4rem 0 0;font-size:.9rem;line-height:1.5;">
+      ⚠ <strong>Proof of concept — not for real use.</strong> Built by independent
+      builders, not production software. Not safe to use and not recommended for
+      general users; provided for developers who want to review the code and accept
+      the risks. Treat it as a demo.
+    </p>
+    <p class="server-fee" id="serverFeeBanner" aria-live="polite" style="display:none"></p>
+    <h1>Know your caller. <br>Cryptographic proof, not promises.</h1>
+    <p class="lead">
+      v4call is paid, end-to-end-encrypted voice, video, screen-share and chat
+      that uses the <a href="https://hive.io" target="_blank" rel="noopener">Hive blockchain</a>
+      as a phonebook. Every message and call is signed and encrypted in your
+      browser to the receiver&rsquo;s public key &mdash; the server can&rsquo;t
+      read it, and the person on the other end has cryptographically proven
+      they hold the private key for the username that contacted you.
+    </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="desktop-app.html">Open the app — log in &rarr;</a>
+      <a class="btn btn-ghost" href="#pages">All pages on this server</a>
+    </div>
+    <p class="small muted" style="margin-top:1.6rem">
+      This page is <strong>v4call-app</strong> &mdash; the client only. It
+      connects to <code>node.v4call.com</code> by default; see
+      <a href="#run">Run your own</a> to point it at a different
+      <strong>v4call-node</strong>.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     WHAT IT IS
+     ============================================================ -->
+<section id="what"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>What v4call gives you</h2>
+    <div class="cards">
+      <div class="card">
+        <span class="kicker">Identity</span>
+        <h3>Hive username as your address</h3>
+        <p>Hive accounts come with key pairs. v4call uses the posting public key from the chain to encrypt messages; only the holder of the matching private key can decrypt. No phone numbers, no email.</p>
+      </div>
+      <div class="card">
+        <span class="kicker">Anti-spam</span>
+        <h3>Pay to contact, refundable</h3>
+        <p>You set a rate per call type. Anyone outside your allow-list pays your rate from escrow before they can ring you, invite you to a room or DM you. Refundable on missed call or decline.</p>
+      </div>
+      <div class="card">
+        <span class="kicker">Sovereignty</span>
+        <h3>MIT licensed, self-hostable</h3>
+        <p>Run your own client (this repo) against your own node &mdash; <code>node.example.com</code> &mdash; or anyone else's. Federate with other v4call nodes if you want, or stay local.</p>
+      </div>
+    </div>
+
+    <div class="note">
+      <strong>Encryption, in one paragraph.</strong>
+      Text messages are encrypted in your browser to each selected recipient&rsquo;s
+      posting public key (pulled from Hive). Voice, video and screen sharing
+      ride on WebRTC, which has its own end-to-end encryption between peers.
+      Your <em>active</em> Hive key is only ever used by
+      <a href="https://hive-keychain.com" target="_blank" rel="noopener">Hive Keychain</a>
+      in your browser to sign payment transactions &mdash; the server never sees it.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     GET A HIVE ACCOUNT
+     ============================================================ -->
+<section id="account"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Step 1 &mdash; get a Hive account</h2>
+    <p>
+      A Hive account costs 3 HIVE to register on-chain (this exists to slow
+      down spam). There are several services that will create one for free;
+      the one currently used for testing is
+      <a href="https://signup.hive.io" target="_blank" rel="noopener">signup.hive.io</a>.
+    </p>
+    <p class="muted small">
+      A hosted onboarding service called <em>hive-gate</em> is on the roadmap
+      so that v4call operators can offer one-click signups to their users.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     LOGIN
+     ============================================================ -->
+<section id="login"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Step 2 &mdash; log in</h2>
+    <p>
+      Log in with your Hive username and your <strong>posting</strong> private
+      key. The posting key is the right level of authority for messaging
+      &mdash; it cannot move funds.
+    </p>
+    <p>
+      The key stays in your browser&rsquo;s memory for the session; it is used
+      locally to decrypt incoming messages and to sign outgoing ones. The
+      server never receives the private key.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/login-with-posting-key.png" alt="v4call login screen with username and posting key fields">
+      <div class="cap">Login form &mdash; username + posting key</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     MAIN LAYOUT
+     ============================================================ -->
+<section id="walkthrough"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Step 3 &mdash; the main layout</h2>
+    <p>
+      After login you land in the lobby. The lobby is local to the node
+      you logged in on; rooms, calls and DMs work across the federation.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/main-page-default.png" alt="v4call main page after login, showing lobby and online users">
+      <div class="cap">Default main page after login</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     LOBBY CONDITIONS
+     ============================================================ -->
+<section id="lobby"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Lobby &mdash; gated by conditions you set</h2>
+    <p>
+      The lobby is a single public chat on each node. An admin can set
+      conditions for posting &mdash; for example, &ldquo;account must hold
+      at least 10 CNOOBS tokens&rdquo;. By design the lobby is local-only;
+      it does not federate.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/lobby-conditions.png" alt="Lobby restrictions: only accounts holding 10+ CNOOBS can post">
+      <div class="cap">Example: only accounts holding 10+ CNOOBS can post. <code>noblemage</code> passes; <code>testin</code> (4 CNOOBS) does not.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     ROOMS
+     ============================================================ -->
+<section id="rooms"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Rooms &mdash; ephemeral, encrypted, exportable</h2>
+    <p>
+      A room is ephemeral. If every user leaves, the room and its history
+      are gone. Anyone joining later can only read messages that were
+      encrypted to their key.
+    </p>
+    <p>
+      A room can be <strong>exported</strong> and later imported into a new
+      room. Because the messages were encrypted per-user, a third party who
+      imports the file still cannot decrypt anything that wasn&rsquo;t
+      addressed to them.
+    </p>
+    <div class="note">
+      <strong>One button changes everything.</strong>
+      In a room you can either:
+      <ul style="margin:.6rem 0 0">
+        <li><strong>Toggle on specific users &rarr; Send.</strong> Only those users can decrypt the message.</li>
+        <li><strong>Press &ldquo;All&rdquo;.</strong> The message goes out unencrypted to the whole room.</li>
+      </ul>
+      If 10 people are in the room and you toggle on 3 before pressing Send,
+      only those 3 receive a decryptable copy. Export the room later and
+      the same 3 are still the only ones who can read the history.
+    </div>
+
+    <h3>Create a room and invite at the same time</h3>
+    <p>
+      In the Create Room tab, enter a room name. If the name is available,
+      toggle on at least one user from the online list (works across the
+      federation) and click <em>create and invite</em>.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/create-room-and-invite.png" alt="Create room form with users toggled for invite">
+      <div class="cap">Create-and-invite from the online list</div>
+    </div>
+
+    <h3>If the invitee has no invite fee (or you&rsquo;re on their friends list)</h3>
+    <p>The invitee sees a simple accept/decline popup &mdash; no payment.</p>
+    <div class="shot">
+      <img src="v4call-web-pics/fed-room-invite-popup.png" alt="Cross-federation room invite popup on the receiving end">
+      <div class="cap">Cross-fed room invite, no fee required</div>
+    </div>
+
+    <h3>If the invitee charges an invite fee</h3>
+    <p>
+      When a target user has an invite fee set, the chat &amp; info box on
+      the right shows an Invite button with the fee on it.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/invite-requires-fee.png" alt="Invite button showing the required fee in the chat and info panel">
+      <div class="cap">Invite button shows the fee the recipient requires</div>
+    </div>
+
+    <p>
+      The same UI is easier to see in a wider room view. Look at the box at
+      the bottom of the <em>participants</em> panel:
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/in-room-no-user-toggled.png" alt="In-room view showing the participants invite field at the bottom">
+      <div class="cap">Bottom of the participants panel &mdash; type the handle you want to invite</div>
+    </div>
+    <p>
+      To invite a user that charges a fee, type their handle into that
+      field:
+    </p>
+    <ul>
+      <li><code>@username</code> &mdash; if they&rsquo;re on the same node</li>
+      <li><code>@username@server</code> &mdash; if they&rsquo;re on a federated node (e.g. <code>@noblemage@hive-book.com</code>)</li>
+    </ul>
+    <p>Press the invite button next to the field and a pay-for-invite popup will appear.</p>
+
+    <p>
+      The popup lists the payment options the recipient accepts &mdash; e.g.
+      <code>0.1 HBD</code> or <code>1 TEST</code>. Token options only appear
+      if you actually hold that token. Pick one, press
+      <em>pay &amp; invite</em>, and Hive Keychain pops up to sign the payment.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/pay-invite-keychain.png" alt="Pay-and-invite popup with token choices">
+      <div class="cap">Choose a token the recipient accepts, then Keychain signs</div>
+    </div>
+
+    <p>The invited user sees a paid-invite popup:</p>
+    <div class="shot">
+      <img src="v4call-web-pics/paid-invite-popup-in-lobby.png" alt="Paid invite popup as seen by the invitee">
+      <div class="cap">Paid invite popup on the receiving side</div>
+    </div>
+
+    <p>
+      If they decline, the fee is refunded (a &ldquo;decline and keep
+      fee&rdquo; option is on the roadmap). If they accept, they enter the
+      room &mdash; and from there the Toggle/Send vs All encryption model
+      from the callout above applies.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     FILE TRANSFER (IPFS)
+     ============================================================ -->
+<section id="files"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>File transfer &mdash; IPFS, your choice of provider</h2>
+    <p>
+      v4call itself does not store any files. User-to-user media (pictures,
+      audio, video, text, PDFs) is uploaded to an IPFS pinning service that
+      <em>you</em> choose. Today there are two compatible options:
+      <strong>Pinata</strong> (easy, free 1 GB tier) and
+      <strong>IPFS-Gate</strong> (self-hostable, Hive-payment-gated).
+    </p>
+
+    <h3>Pick your storage backend</h3>
+    <p>In the storage section, click <em>change</em> and pick the backend.</p>
+    <div class="shot">
+      <img src="v4call-web-pics/storage-backend-picker.png" alt="Storage backend picker, choose Pinata or IPFS-Gate">
+      <div class="cap">Storage backend picker</div>
+    </div>
+
+    <h3>Option A &mdash; Pinata (easy path)</h3>
+    <p>
+      Pinata (<a href="https://pinata.cloud/" target="_blank" rel="noopener">pinata.cloud</a>)
+      gives you a free 1 GB account. At
+      <a href="https://app.pinata.cloud/developers/api-keys" target="_blank" rel="noopener">app.pinata.cloud/developers/api-keys</a>
+      click <em>+ New Key</em>, and under
+      <em>Legacy Endpoints &rsaquo; Pinning</em> tick <code>pinFileToIPFS</code>
+      &mdash; that&rsquo;s the only permission you need to upload from v4call.
+    </p>
+    <p>You will get a key triple that looks roughly like this:</p>
+<pre>API Key:    6caf48686e6f94f1234b
+API Secret: 434cf25ca73870d816154140748328849007092b325150f68074ec1d4e3cc1ae
+JWT:        eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySW5mb3JtYXR...glvAaO_-8YTRb-5u4IEBU9bPskYyprJ9peqiKhU-jcY</pre>
+    <p class="small muted">Example only &mdash; this JWT has been revoked. Generate your own at pinata.cloud.</p>
+
+    <p>Paste your JWT into v4call and press <em>test</em>:</p>
+    <div class="shot">
+      <img src="v4call-web-pics/pinata-jwt-test.png" alt="Pinata JWT login and test in v4call">
+      <div class="cap">JWT test inside v4call</div>
+    </div>
+
+    <p>
+      Once the JWT is set, uploading is one click: press <em>Encrypt &amp;
+      Upload</em>. As long as you have storage quota at Pinata, the file is
+      encrypted in your browser, the ciphertext is uploaded, and a link is
+      shared into the room.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="v4call-web-pics/pinata-upload-in-room.png" alt="Pinata upload in-room">
+        <div class="cap">Encrypt &amp; Upload from a room</div>
+      </div>
+      <div class="shot">
+        <img src="v4call-web-pics/pinata-upload-no-payment.png" alt="Pinata upload completes with no payment prompt">
+        <div class="cap">No Keychain payment prompt &mdash; Pinata is paid out-of-band</div>
+      </div>
+    </div>
+
+    <h3>Pinata admin panel (optional, with a wider key)</h3>
+    <p>
+      v4call has an <em>IPFS &rsaquo; Pinata</em> admin tab. To use it,
+      create a second Pinata key with these permissions:
+    </p>
+    <ul>
+      <li><strong>Legacy Endpoints &rsaquo; Pinning</strong>: <code>pinFileToIPFS</code>, <code>unpin</code>, <code>hashMetadata</code></li>
+      <li><strong>Legacy Endpoints &rsaquo; Data</strong>: <code>pinList</code>, <code>userPinnedDataTotal</code></li>
+    </ul>
+    <p class="small muted">
+      <code>pinFileToIPFS</code> uploads &middot;
+      <code>unpin</code> is the one that <em>must</em> work or you bill forever on orphans &middot;
+      <code>hashMetadata</code> renames/tags pins &middot;
+      <code>pinList</code> powers the admin table (rate-limited ~30/min, page it) &middot;
+      <code>userPinnedDataTotal</code> is the usage/quota readout.
+    </p>
+    <div class="shot-row">
+      <div class="shot">
+        <img src="v4call-web-pics/pinata-admin-locked.png" alt="Pinata admin tab before login">
+        <div class="cap">Admin tab, not yet logged in</div>
+      </div>
+      <div class="shot">
+        <img src="v4call-web-pics/pinata-admin-key-login.png" alt="Pinata admin key login">
+        <div class="cap">Press <em>Management Key</em>, paste the JWT</div>
+      </div>
+    </div>
+    <div class="shot">
+      <img src="v4call-web-pics/pinata-admin-panel.png" alt="Pinata admin panel inside v4call">
+      <div class="cap">Pinata admin panel inside v4call</div>
+    </div>
+
+    <h3>Option B &mdash; IPFS-Gate (self-host path)</h3>
+    <p>
+      <strong>IPFS-Gate</strong> is sister software (MIT, very early concept
+      stage) that lets you run your own pinning service where users pay
+      directly on Hive. The current proof-of-concept accepts an upload and
+      hosts it for a fixed time window in exchange for 1 TEST token.
+    </p>
+    <p>
+      In v4call, pick a user in the room, choose IPFS-Gate as the backend,
+      and upload. The file is encrypted in-browser to the recipient&rsquo;s
+      posting public key before it ever leaves your machine.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/ipfsgate-after-file-select.png" alt="IPFS-Gate after file selection">
+      <div class="cap">File picked, ready to pay-and-upload</div>
+    </div>
+    <p>Pay with Keychain, and once the payment confirms the upload starts:</p>
+    <div class="shot">
+      <img src="v4call-web-pics/ipfsgate-uploading.png" alt="IPFS-Gate uploading after payment">
+      <div class="cap">Payment cleared &mdash; upload in progress</div>
+    </div>
+    <p>
+      When it&rsquo;s done, the file appears in the room. Pictures, audio,
+      video, text and PDF all preview in-line; download is one click.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/ipfsgate-uploaded-in-room.png" alt="Uploaded file appearing in room">
+      <div class="cap">Uploaded file appears in the room</div>
+    </div>
+    <p>
+      v4call also has a simple management view tied to your Hive account
+      showing your IPFS-Gate uploads, share links, remaining TTL and an
+      <em>unpin early</em> button.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/v4call-ipfsgate-admin.png" alt="v4call IPFS-Gate management tab">
+      <div class="cap">v4call &rsaquo; IPFS-Gate management</div>
+    </div>
+    <div class="note">
+      <strong>IPFS-Gate is very early.</strong>
+      What you see here is the first working slice. The roadmap includes
+      flexible TTLs, multiple payment tokens, per-operator quota tuning
+      and admin tooling. Treat it as a working demo, not a finished product.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     MISSED CALL
+     ============================================================ -->
+<section id="missed"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Missed-call refund</h2>
+    <p>
+      If you set a ring rate, callers pay the fee from escrow before their
+      call rings you. If the call never connects &mdash; you were offline,
+      or you simply didn&rsquo;t answer &mdash; you see a missed-call alert
+      with two choices: <strong>refund</strong> the caller, or
+      <strong>keep</strong> the ring fee.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/missed-call-alert.png" alt="Missed-call alert with refund or keep options">
+      <div class="cap">Missed-call alert: refund or keep the fee</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     USER-ANNOUNCE — publish your rates to Hive
+     ============================================================ -->
+<section id="announce"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Announce yourself &mdash; one signed Hive post</h2>
+    <p>
+      <strong>User-announce</strong> generates and posts your v4call
+      conditions to the Hive blockchain. It is one signed Hive post that
+      every app can read &mdash; v4call rates, paid-invite offers, Nostr
+      keys, Bitcoin / Lightning addresses, SSH key, contact details. Tick
+      only the sections you want; the rest emit no block at all.
+    </p>
+    <p>
+      The post title is always <code>user-announce</code>; tags are
+      <code>user-announce</code>, <code>hive</code>, <code>v4call</code>,
+      <code>nostr</code>, <code>bitcoin</code>. Each section is its own
+      versioned block, so apps read what they understand and ignore the
+      rest. Apps always read your most recent post with that title.
+    </p>
+
+    <div class="shot">
+      <img src="v4call-web-pics/user-announce-1.png" alt="user-announce screen: identity and v4call service sections">
+      <div class="cap">The user-announce screen &mdash; sections on the left, generated Hive post body on the right</div>
+    </div>
+
+    <h3>IDENTITY (always in the post)</h3>
+    <p>
+      Enter your Hive username. If the Hive Keychain extension is
+      installed, you&rsquo;ll see a green &ldquo;Post to Hive enabled&rdquo;
+      confirmation under the field. The username appears in every post,
+      so this block can&rsquo;t be turned off.
+    </p>
+
+    <h3>V4call service</h3>
+    <p>
+      This block tells readers which v4call-node you call home and
+      which escrow account that node controls &mdash; the account where
+      your paid calls, DMs and invites settle. Check the node&rsquo;s own
+      announcer post on Hive (or its <code>/api/info</code> endpoint) for
+      its current escrow account.
+    </p>
+    <p class="small muted">
+      There isn&rsquo;t yet a standard federation-hosting rule for the
+      escrow account &mdash; that&rsquo;s on the TODO list.
+    </p>
+
+    <h3>V4call &mdash; set your rates for callers</h3>
+    <p>
+      Expand this section and tick the <strong>include</strong> checkbox on
+      the right of the title to add the rates block to your post.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/user-announce-set-your-rates.png" alt="Rates section with BLOCKED, priority list, and default LIST rows">
+      <div class="cap">Empty rates section &mdash; no tokens added, no custom lists yet</div>
+    </div>
+    <p>
+      This block tells callers what they pay you for each kind of contact:
+      <em>invite fee</em>, <em>offer fee</em>, <em>DM fee</em>, plus
+      <em>voice</em> and <em>video</em> (ring / connect / per-hour rate /
+      minimum deposit). Any field left at <strong>0</strong> means
+      <strong>free</strong>.
+    </p>
+    <p>
+      <strong>Priority is the order on screen</strong> &mdash; the resolver
+      walks the list top-to-bottom, and the first match wins:
+    </p>
+    <ol>
+      <li>
+        <strong>[BLOCKED]</strong> (pinned first) &mdash; security gate.
+        Comma-separated usernames go in <em>USERS</em>; if blank, nobody
+        is blocked. Set an optional <em>BLOCK MESSAGE</em> the blocked
+        caller will see. <em>ALLOW-IF-TOKEN</em> is a bypass &mdash; if the
+        caller holds the named token, the block does not apply.
+      </li>
+      <li>
+        <strong>Middle rules</strong> &mdash; your token rates and any
+        custom lists, in the order you drag them. Drag the
+        <code>&#x2807;&#x2807;</code> handle to reorder. First match wins.
+      </li>
+      <li>
+        <strong>[LIST:default]</strong> (pinned last) &mdash; the
+        last-resort fallback that catches everyone else.
+      </li>
+    </ol>
+    <p>
+      A <strong>WHO PAYS WHAT</strong> tester at the bottom resolves a
+      sample caller against your live order before you post, so you can
+      see who would pay what without committing anything to chain.
+    </p>
+
+    <h3>Token rates</h3>
+    <p>
+      Inside the priority list you can add token-specific pricing. Click
+      <em>+ Add token</em> to open a token block.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/user-announce-token-rates.png" alt="Token rates block with SYMBOL field and per-token fees">
+      <div class="cap">A token block &mdash; SYMBOL, bypass-block toggle, and the full fee schedule for callers paying in that token</div>
+    </div>
+    <p>
+      Enter the token <em>SYMBOL</em>. The <em>bypass block</em> checkbox
+      lets holders of this token through the [BLOCKED] gate above. Then
+      set the per-token fees (invite / offer / DM / voice / video). You
+      can add more than one token block &mdash; one for each currency you
+      want to accept.
+    </p>
+    <p class="small muted">
+      Creating your own token on Hive currently costs about
+      <strong>$5</strong> for a basic token (no staking) and
+      <strong>$40&ndash;50</strong> for a stake-enabled one. See
+      <a href="https://hive-engine.com" target="_blank" rel="noopener">hive-engine.com</a>
+      for the current price.
+    </p>
+
+    <h3>Custom lists</h3>
+    <p>
+      Custom lists let you carve out a group of users that get
+      different rates from everyone else &mdash; family, friends, work
+      contacts, paying subscribers, etc. Click <em>+ Add list</em>.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/user-announce-custom-list.png" alt="Custom LIST block with name, USERS field and fee schedule">
+      <div class="cap">A custom list &mdash; name it, drop usernames in, set this group&rsquo;s rates</div>
+    </div>
+    <p>
+      Give the list a name (e.g. <code>family</code>, <code>work</code>),
+      enter the usernames comma-separated, and fill in the fee schedule.
+      Lists higher in the priority order match first. You can create as
+      many lists as you like.
+    </p>
+    <p class="small muted">
+      Lists here are single 24/7 windows. Multi-time-window and
+      day-of-week splits were a <code>rate-editor.html</code> feature that
+      hasn&rsquo;t been ported to <code>user-announce.html</code> yet
+      (known gap, on the roadmap) &mdash; <code>rate-editor.html</code>
+      itself is outdated and not part of this client bundle.
+    </p>
+
+    <h3>Generate &amp; post</h3>
+    <p>
+      The right-hand column &mdash; <strong>OUTPUT &mdash; Hive post body</strong>
+      &mdash; shows the post that will be written to Hive. Press
+      <em>Generate</em> to preview, <em>Copy</em> to grab the text, or
+      <em>Post to Hive</em> to sign and publish via Hive Keychain. Use
+      <em>Load from Hive</em> to pull your last announce back in for
+      editing.
+    </p>
+    <div class="shot">
+      <img src="v4call-web-pics/user-announce-hive-post-body-filed-in-demo.png" alt="A filled-in user-announce form ready to post">
+      <div class="cap">A filled-in example &mdash; rates set, a custom &ldquo;fwend&rdquo; list added, default fallback rates entered</div>
+    </div>
+    <p>
+      Other sections on the same page &mdash; <strong>Nostr</strong>,
+      <strong>Bitcoin</strong>, <strong>Lightning</strong>,
+      <strong>SSH public key</strong> &mdash; work the same way: tick
+      <em>include</em>, fill in the fields, and they join the post. Leave
+      them off and they emit nothing.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     FEDERATION + ESCROW FEE TABLE
+     ============================================================ -->
+<section id="federation"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Federation &mdash; one network, many nodes</h2>
+    <p>
+      Federation is optional. Turn it on and users on your node can see,
+      call and invite users on the other federated nodes you trust. The
+      same Hive identity works everywhere &mdash; <code>@alice@node.v4call.com</code>
+      and <code>@alice@hive-book.com</code> are the same person on Hive.
+    </p>
+    <p>
+      Federation runs over a direct server-to-server <strong>WebSocket</strong>
+      link &mdash; the primary, always-on transport. It carries everything:
+      presence, DMs, calls, rooms and payments.
+    </p>
+    <p>
+      <strong>Nostr</strong> runs alongside it as an <strong>optional</strong>
+      layer. Each node publishes to a small set of Nostr relays for two jobs:
+      fast <em>peer discovery</em> (finding other nodes in seconds instead of
+      waiting on a periodic blockchain scan) and cross-server <em>presence</em>
+      (seeing who&rsquo;s online elsewhere). As of the latest build it can also
+      act as a <em>fallback transport for DMs and file attachments</em> when the
+      direct WebSocket link is down or disabled &mdash; so a free or paid DM to
+      someone on another node can still get through over the relays. It&rsquo;s
+      off by default and entirely optional; calls and rooms always use the
+      WebSocket link.
+    </p>
+
+    <h3>Escrow platform fee</h3>
+    <p>
+      Each v4call-node may take a small percentage of escrow transactions as
+      a platform fee. The fee is set by that node&rsquo;s operator and
+      varies per node.
+    </p>
+    <div id="feeTableWrap">
+      <table>
+        <thead>
+          <tr><th>Example node</th><th>Platform fee</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>node.v4call.com</code></td><td>set via <code>DEFAULT_PLATFORM_FEE</code></td></tr>
+        </tbody>
+      </table>
+      <p class="small muted">
+        The canonical fee for a node is in its announcer post on the Hive
+        blockchain, or its live <code>/api/info</code> endpoint. Self-host
+        operators: set yours via the <code>DEFAULT_PLATFORM_FEE</code>
+        environment variable in v4call-node&rsquo;s <code>.env</code>.
+      </p>
+    </div>
+
+    <div class="note">
+      <strong>Note on swap.* tokens.</strong>
+      Wrapped tokens such as <code>SWAP.BTC</code> can in principle be used
+      to pay rates. At the moment the minimum increment hasn&rsquo;t been
+      fine-tuned, so the practical minimum is around
+      <code>0.001 SWAP.BTC</code>. Smaller increments are believed possible
+      but not yet wired up.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     SIBLING PROJECTS
+     ============================================================ -->
+<section id="siblings"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Sibling projects</h2>
+    <p>
+      v4call started as one project; it has since been decoupled into
+      focused pieces (see <a href="#run">Run your own</a>), plus two more
+      that grew alongside it because they made the rest of the stack
+      possible. All are MIT licensed.
+    </p>
+
+    <div class="cards">
+      <div class="card">
+        <span class="kicker">Storage</span>
+        <h3>IPFS-Gate</h3>
+        <p>
+          A Hive-payment-gated IPFS pinning service. Operators run a node;
+          users pay on-chain for upload + TTL. End-to-end encryption happens
+          in the client (v4call) &mdash; the gate never sees plaintext.
+        </p>
+        <p class="small muted">
+          Status: very early concept stage. First production use case is
+          v4call attachments. Roadmap includes configurable TTLs, multiple
+          payment tokens, per-operator quotas and richer admin tooling.
+        </p>
+      </div>
+      <div class="card">
+        <span class="kicker">Relay trust</span>
+        <h3>nGate</h3>
+        <p>
+          A Hive&nbsp;&rarr;&nbsp;Nostr relay-whitelist bridge. nGate scans Hive
+          for server announces, verifies the operator&rsquo;s cryptographic
+          proof, applies economic gates (e.g. &ldquo;escrow account holds
+          at least 300 HP staked and/or delegated&rdquo;), and updates the
+          Nostr relay&rsquo;s allow-list on a schedule.
+        </p>
+        <p class="small muted">
+          Modes: flat (one account check) or split (escrow account + token
+          account, combined with AND/OR). Miss-counter grace period before
+          eviction; dry-run is the default. Sidecar to
+          <code>nostr-rs-relay</code> / <code>strfry</code>.
+        </p>
+      </div>
+    </div>
+
+    <p class="small muted">
+      Both projects exist because v4call needs them: IPFS-Gate gives users a
+      pay-to-pin storage option that doesn&rsquo;t depend on a single SaaS;
+      nGate makes it possible to know which federation peers are
+      economically committed before trusting them.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     RUN YOUR OWN
+     ============================================================ -->
+<section id="run"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>Run your own copy</h2>
+    <p>
+      v4call is now three independent pieces. This page is
+      <strong>v4call-app</strong> &mdash; just the client screens, no server
+      process, no money key. It connects to whichever
+      <strong>v4call-node</strong> you point it at (this copy defaults to
+      <code>node.v4call.com</code>).
+    </p>
+    <div class="cards">
+      <div class="card">
+        <span class="kicker">This repo</span>
+        <h3>Host the client &mdash; v4call-app</h3>
+        <p>
+          Static HTML/CSS/JS, no build step, no server process. Clone the
+          repo and serve the folder with any static web host. The full
+          step-by-step for a fresh Alpine Linux box is in this repo&rsquo;s
+          <code>walkthrough.wiki</code>.
+        </p>
+<pre>git clone https://github.com/CompleteNoobs/v4call-app
+cd v4call-app
+# serve this folder with any static file server
+# (nginx, Caddy, GitHub Pages, ...) — see walkthrough.wiki</pre>
+      </div>
+      <div class="card">
+        <span class="kicker">Separate repo</span>
+        <h3>Run your own node &mdash; v4call-node</h3>
+        <p>
+          The actual server: login routing, presence, federation, chat,
+          and (for now) the escrow money engine. Deploy walkthrough:
+          <a href="https://github.com/CompleteNoobs/v4call-node" target="_blank" rel="noopener">github.com/CompleteNoobs/v4call-node</a>
+          (see <code>walkthrough.wiki</code> in that repo).
+        </p>
+      </div>
+    </div>
+    <div class="note">
+      <strong>Client and node are usually on different domains &mdash; that&rsquo;s a CORS relationship.</strong>
+      Because they are separate origins, the browser will only accept the
+      node&rsquo;s responses if the node&rsquo;s <code>CORS_ALLOWED_ORIGINS</code>
+      explicitly lists this client&rsquo;s origin (e.g.
+      <code>https://v4call.com</code>). See this repo&rsquo;s
+      <code>walkthrough.wiki</code> for the full walkthrough, including how
+      to verify CORS is wired correctly. Hosting both under the same origin
+      (e.g. the client under a node&rsquo;s <code>/app/</code> path) sidesteps
+      CORS entirely.
+    </div>
+    <p>
+      Point this client at a different node any time from the login
+      screen&rsquo;s <strong>v4call node</strong> field (defaults to
+      <code>node.v4call.com</code>), or seed it ahead of time via
+      <a href="select.html">select.html</a>&rsquo;s node field &mdash; both
+      write the same <code>localStorage['v4call:node']</code> key that
+      <code>nodeBase()</code> reads.
+    </p>
+    <p>
+      Trading pair for the test token used in demos:
+      <a href="https://hive-engine.com/trade/TEST" target="_blank" rel="noopener">hive-engine.com/trade/TEST</a>.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     PAGES — sitemap of every page in this bundle
+     ============================================================ -->
+<section id="pages"><span class="anchor"></span>
+  <div class="wrap">
+    <h2>All pages on this server</h2>
+    <p>
+      v4call-app is a bundle of standalone HTML pages &mdash; the client
+      (desktop + mobile), a layout/node picker, and the operator tool pages
+      used to run a node. Every page below lives in this same folder; open
+      any of them directly.
+    </p>
+
+    <h3>For users</h3>
+    <div class="cards">
+      <a class="card link-card" href="desktop-app.html">
+        <span class="kicker">Client</span>
+        <h3>🖥️ Desktop app</h3>
+        <p>The full multi-panel layout &mdash; log in, calls, DMs, rooms, uploads. Recommended.</p>
+      </a>
+      <a class="card link-card" href="mobile-app.html">
+        <span class="kicker">Client</span>
+        <h3>📱 Mobile app</h3>
+        <p>Single-column layout with a bottom-tab nav, for phones.</p>
+      </a>
+      <a class="card link-card" href="select.html">
+        <span class="kicker">Picker</span>
+        <h3>Choose layout</h3>
+        <p>Auto-detects desktop vs. mobile, and lets you set which v4call-node this client talks to.</p>
+      </a>
+      <a class="card link-card" href="info.html">
+        <span class="kicker">Docs</span>
+        <h3>Getting started</h3>
+        <p>A shorter onboarding page with a direct link to the rate editor.</p>
+      </a>
+      <a class="card link-card" href="user-announce.html">
+        <span class="kicker">Identity</span>
+        <h3>user-announce</h3>
+        <p>One signed Hive post for your v4call rates, Nostr keys, Bitcoin/Lightning address, SSH key.</p>
+      </a>
+      <a class="card link-card" href="nostr-gen.html">
+        <span class="kicker">Keys</span>
+        <h3>Nostr key generator</h3>
+        <p>Browser-only Nostr keypair generator. Keys never leave your device.</p>
+      </a>
+      <a class="card link-card" href="bitcoin-gen.html">
+        <span class="kicker">Keys</span>
+        <h3>Bitcoin keypair generator</h3>
+        <p>Browser-only Bitcoin keypair generator.</p>
+      </a>
+      <a class="card link-card" href="qr-gen.html">
+        <span class="kicker">Utility</span>
+        <h3>QR generator + scanner</h3>
+        <p>Move a secret (posting key, nsec) between two of your own devices without sending it over a network.</p>
+      </a>
+    </div>
+
+    <h3>For node operators</h3>
+    <div class="cards">
+      <a class="card link-card" href="server-sign.html">
+        <span class="kicker">Operator</span>
+        <h3>Server verify builder</h3>
+        <p>Generates the signed <code>v4call-server.json</code> domain-proof file your node serves at <code>/.well-known/</code>.</p>
+      </a>
+      <a class="card link-card" href="server-announce.html">
+        <span class="kicker">Operator</span>
+        <h3>Announce server</h3>
+        <p>Publishes the <code>v4call-server</code> Hive post that lets other nodes discover yours.</p>
+      </a>
+      <a class="card link-card" href="admin-peers.html">
+        <span class="kicker">Operator</span>
+        <h3>Peer admin</h3>
+        <p>Discover, approve and revoke federation peers for your node. Needs your node's admin key.</p>
+      </a>
+    </div>
+    <p class="small muted">
+      The operator pages sign with your Hive key locally (via Keychain or
+      paste) &mdash; the key never reaches any v4call-node.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     LIGHTBOX (click any screenshot to enlarge)
+     ============================================================ -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()" role="dialog" aria-label="Enlarged screenshot" aria-modal="true">
+  <button class="lightbox-close" onclick="event.stopPropagation(); closeLightbox()" aria-label="Close">&times;</button>
+  <img id="lightboxImg" alt="">
+</div>
+
+<!-- ============================================================
+     FOOTER
+     ============================================================ -->
+<footer>
+  <div class="wrap">
+    <div>
+      <a href="https://github.com/CompleteNoobs/v4call-app" target="_blank" rel="noopener">v4call-app</a> &middot;
+      <a href="https://github.com/CompleteNoobs/v4call-node" target="_blank" rel="noopener">v4call-node</a> &middot;
+      <a href="https://github.com/CompleteNoobs/escrow-core" target="_blank" rel="noopener">escrow-core</a> &middot;
+      <a href="https://github.com/CompleteNoobs/IPFS-Gate" target="_blank" rel="noopener">IPFS-Gate</a> &middot;
+      <a href="https://github.com/CompleteNoobs/nGate" target="_blank" rel="noopener">nGate</a>
+      &nbsp;&mdash;&nbsp; MIT licensed &middot; PRs welcome
+    </div>
+    <div class="tagline">Make End-User&rsquo;s Root Again!</div>
+  </div>
+</footer>
+
+</body>
+</html>
