@@ -70,7 +70,9 @@ Know what you're starting from — a fresh Alpine cloud image is tiny (busybox u
  cat /etc/alpine-release          # 3.23.x
  uname -a                         # kernel + arch
  rc-status                        # running OpenRC services (expect: networking, chronyd, sshd)
- ss -tlnp                         # listening sockets — should be ONLY :22 (sshd)
+ netstat -tlnp                    # listening sockets — should be ONLY :22 (sshd)
+
+'''Note''': a fresh Alpine cloud image has '''no <code>ss</code>''' — <code>iproute2</code> isn't installed, so <code>ss -tlnp</code> returns <code>ss: not found</code>. Use busybox's <code>netstat -tlnp</code> as above, or run <code>apk add iproute2</code> first if you specifically want <code>ss</code>.
 
 == Step 2: Point the Domain at the Server ==
 
@@ -204,7 +206,9 @@ Alpine's nginx package reads <code>/etc/nginx/nginx.conf</code>, which includes 
 
 == Step 7: Get the Code ==
 
-<code>v4call-app</code> is public — clone it straight in as the <code>deploy</code> user, directly into the web root:
+<code>v4call-app</code> is public — clone it straight in as the <code>deploy</code> user, directly into the web root. A fresh Alpine box has '''no <code>git</code>''' (the clone below fails with <code>git: not found</code> otherwise), so install it first:
+
+ apk add git
 
  su deploy -s /bin/sh -c 'git clone https://github.com/CompleteNoobs/v4call-app /var/www/v4call.com'
  ls /var/www/v4call.com/index.html /var/www/v4call.com/desktop-app.html /var/www/v4call.com/vendor/socket.io.min.js
@@ -278,6 +282,12 @@ EOF
 chmod +x /etc/periodic/daily/certbot-renew
 </pre>
 
+Verify renewal actually works with a dry-run (no cert is issued):
+
+ certbot renew --dry-run --no-random-sleep-on-renew
+
+Expect <code>Congratulations, all simulated renewals succeeded</code>. The <code>--no-random-sleep-on-renew</code> flag matters when you run this non-interactively (e.g. over <code>ssh host '...'</code> with no TTY): plain <code>certbot renew</code> inserts a random sleep of up to ~12 minutes before it does anything (good for the real daily job — it spreads load on Let's Encrypt — but it makes a manual dry-run look like it's hung). The daily job above keeps the random sleep on purpose.
+
 '''Now switch to HTTPS''' — replace the config:
 
  nano /etc/nginx/http.d/v4call-app.conf
@@ -314,7 +324,9 @@ server {
     index index.html;
 
     gzip on;
-    gzip_types text/css application/javascript text/html;
+    # Don't list text/html here — Nginx always gzips it, and naming it again
+    # triggers a "duplicate MIME type" warning on every reload/-t.
+    gzip_types text/css application/javascript;
 
     location / {
         try_files $uri $uri/ =404;
@@ -395,6 +407,15 @@ Only reload Nginx if you changed <code>/etc/nginx/http.d/v4call-app.conf</code> 
 === nftables: "Your kernel lacks nftables support" / "Unable to initialize Netlink socket" ===
 You upgraded the kernel (<code>apk upgrade</code> pulled <code>linux-virt</code>) but haven't rebooted. '''Reboot''', then start nftables.
 
+=== Step 7 clone fails with <code>git: not found</code> ===
+A fresh Alpine image doesn't ship <code>git</code>. Run <code>apk add git</code> first (now folded into Step 7), then re-run the clone.
+
+=== Nginx <code>[warn] duplicate MIME type "text/html"</code> on reload / <code>nginx -t</code> ===
+Harmless, but avoidable: Nginx always gzips <code>text/html</code>, so naming it again in <code>gzip_types</code> warns. Drop <code>text/html</code> from that line (Step 8 already does).
+
+=== <code>fatal: detected dubious ownership</code> when running <code>git</code> in the web root ===
+You ran <code>git</code> as <code>root</code> in <code>/var/www/v4call.com</code>, which is owned by <code>deploy</code>. Run git as the owner instead — <code>su deploy -s /bin/sh -c 'cd /var/www/v4call.com && git ...'</code> (this is how the [[#Updating_the_Site|Updating the Site]] step is written) — or, if you must, <code>git config --global --add safe.directory /var/www/v4call.com</code>.
+
 === Nginx <code>[emerg] cannot load certificate ... No such file</code> ===
 You enabled the HTTPS block before the certificate existed. Revert to the HTTP-only config, reload, get the cert, then re-add HTTPS (Step 8).
 
@@ -422,7 +443,7 @@ Nothing to restart for a static site, but the '''browser''' may be caching aggre
 == Quick Reference ==
 
 ;Versions (Alpine 3.23)
-: Nginx (apk) · Certbot (apk) · no Node.js needed on this box at all — v4call-app has zero build step.
+: Nginx (apk) · Certbot (apk) · Git (apk — for the Step 7 clone) · no Node.js needed on this box at all — v4call-app has zero build step.
 ;Service control
 : <code>rc-service nginx {start|stop|restart|reload|status}</code> · config: <code>/etc/nginx/http.d/v4call-app.conf</code> · enable at boot: <code>rc-update add nginx default</code>.
 ;Firewall
