@@ -1310,6 +1310,9 @@
     <div class="payment-total" style="margin-top:10px;"><span class="label">COST</span><span class="amount" id="pub-cost-line" style="color:var(--accent);">… checking gate</span></div>
     <div id="pub-pricing" class="gate-pricing"></div>
     <div class="payment-note" id="pub-status-note" style="min-height:18px;">Ready.</div>
+    <!-- Guardian feature: filled by renderHostedPanel() when the gate's POST /check
+         says this file's CID is already hosted (ipfs-gate backend only). -->
+    <div id="pub-hosted-panel" style="display:none;margin-top:8px;border:1px solid var(--accent);border-radius:6px;padding:8px;"></div>
     <div id="pub-result" style="display:none;margin-top:8px;"></div>
     <div class="keychain-required">⚡ Requires Hive Keychain (Posting + Active)</div>
     <div class="payment-btn-row">
@@ -5740,6 +5743,8 @@ function openPublicUploadModal() {
   document.getElementById('pub-file-input').value = '';
   document.getElementById('pub-file-meta').textContent = '';
   const r = document.getElementById('pub-result'); r.style.display = 'none'; r.innerHTML = '';
+  const hp = document.getElementById('pub-hosted-panel'); hp.style.display = 'none'; hp.innerHTML = '';
+  hostedCid = null;
   document.getElementById('pub-upload-btn').disabled = false;
   setPubStatus('Ready.');
   document.getElementById('public-upload-modal').style.display = 'flex';
@@ -5751,6 +5756,10 @@ function closePublicUploadModal() {
 function onPubFilePick() {
   const f = (document.getElementById('pub-file-input').files || [])[0];
   const meta = document.getElementById('pub-file-meta');
+  // a new file means the old already-hosted answer no longer applies
+  const hp = document.getElementById('pub-hosted-panel');
+  if (hp) { hp.style.display = 'none'; hp.innerHTML = ''; }
+  hostedCid = null;
   if (!f) { meta.textContent = ''; return; }
   const mime = detectFileMime(f) || 'application/octet-stream';
   const warn = (getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes) ? ` ⚠ over gate cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB)` : '';
@@ -5774,7 +5783,7 @@ function showPubResult(url) {
   });
   document.getElementById('pub-open-btn').addEventListener('click', () => window.open(url, '_blank', 'noopener'));
 }
-async function confirmPublicUpload() {
+async function confirmPublicUpload(skipHostedCheck) {
   const file = (document.getElementById('pub-file-input').files || [])[0];
   if (!file) { setPubStatus('Pick a file first.', true); return; }
   const backend = getStorageBackend();
@@ -5785,6 +5794,22 @@ async function confirmPublicUpload() {
   const btn = document.getElementById('pub-upload-btn');
   btn.disabled = true;
   try {
+    // Guardian feature (ipfs-gate only — Pinata has no claim model): same bytes
+    // = same CID for public uploads, so ask the gate FIRST (free, nothing
+    // stored) whether this file is already hosted. If it is, offer backing the
+    // existing copy (guardian / own copy) instead of a blind re-upload.
+    if (!skipHostedCheck && backend.type === 'ipfs-gate') {
+      setPubStatus('Checking whether this file is already hosted…');
+      const hosted = await gateCheckAlreadyHosted(file, backend.url);
+      if (hosted && hosted.already_hosted) {
+        renderHostedPanel(hosted, file);
+        setPubStatus('This file is already hosted on the gate — pick an option below.');
+        btn.disabled = false;
+        return;
+      }
+      const hp = document.getElementById('pub-hosted-panel');
+      hp.style.display = 'none'; hp.innerHTML = '';
+    }
     const res = await uploadPublicFile(file, backend.type === 'ipfs-gate' ? backend.url : '');
     // Record the filename on our home server so the Uploads tab can label it
     // (the gate stores mime but not filename). Public uploads aren't tied to a
@@ -5801,6 +5826,119 @@ async function confirmPublicUpload() {
     btn.disabled = false;
   }
 }
+// ── Guardian feature (already-hosted → guardian / own copy) ──────────────
+// Spec: when a public upload's CID is already live on the gate, the user can
+// back the existing copy instead of re-uploading — either a GUARDIAN (dormant
+// FIFO pledge that pays nothing unless the file would otherwise drop) or an
+// OWN COPY (independent live claim, no byte transfer). Encrypted sends never
+// hit this (fresh AES key ⇒ fresh CID), so it's wired into the public path only.
+let hostedCid = null, hostedFileName = '';
+
+/** POST /check — best-effort: an old gate without it just means "proceed". */
+async function gateCheckAlreadyHosted(file, gatewayUrl) {
+  try {
+    const form = new FormData();
+    form.append('ciphertext', new Blob([new Uint8Array(await file.arrayBuffer())]), file.name);
+    const res = await fetch(`${gatewayUrl}/check`, { method: 'POST', body: form });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+function setHostedStatus(text, isErr) {
+  const n = document.getElementById('hosted-status');
+  if (!n) return;
+  n.textContent = text || '';
+  n.style.color = isErr ? 'var(--danger)' : 'var(--muted)';
+}
+
+function renderHostedPanel(j, file) {
+  hostedCid = j.cid;
+  hostedFileName = file ? file.name : '';
+  const p = document.getElementById('pub-hosted-panel');
+  p.style.display = 'block';
+  const until = j.hosted_until ? new Date(j.hosted_until).toLocaleString() : '?';
+  p.innerHTML = `
+    <div style="font-size:0.78rem;color:var(--accent);margin-bottom:4px;"><b>📌 This file is already hosted on the gate.</b></div>
+    <div style="font-size:0.7rem;color:var(--subtext);line-height:1.5;">Paid to stay up until <b>${escapeHtml(until)}</b> · ${Number(j.active_hosts) || 1} live host(s) · ${Number(j.guardian_queue_depth) || 0} guardian(s) queued. You don't have to re-upload — you can back the existing copy instead:</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:8px;">
+      <span style="font-size:0.68rem;color:var(--subtext);">HOURS TO FUND</span>
+      <input type="number" id="hosted-hours" min="1" value="${gateDefaultHours}" style="width:80px;font-size:0.78rem;"/>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+      <button class="upl-btn" onclick="becomeGuardian()">🛡 Become a Guardian</button>
+      <button class="upl-btn" onclick="hostOwnCopy()">📄 Host my own copy</button>
+      <button class="upl-btn" onclick="confirmPublicUpload(true)">⬆ Upload anyway</button>
+    </div>
+    <div style="font-size:0.68rem;color:var(--muted);margin-top:6px;line-height:1.5;"><b>Guardian</b> = pledge a budget now, pay nothing unless the file would otherwise be dropped — first-come queue, takes over hosting only when the last live host ends (cancel while dormant = full refund). <b>Own copy</b> = pay now for your own independent copy — own timer, own refund, live immediately.</div>
+    <div class="payment-note" id="hosted-status" style="min-height:16px;"></div>`;
+}
+
+async function becomeGuardian() {
+  if (!myUsername) { setHostedStatus('Log in first.', true); return; }
+  if (!hostedCid) { setHostedStatus('No CID — re-run the check.', true); return; }
+  const backend = getStorageBackend();
+  if (backend.type !== 'ipfs-gate') { setHostedStatus('Guardian needs the ipfs-gate backend.', true); return; }
+  const hours = Math.max(1, parseInt(document.getElementById('hosted-hours').value) || gateDefaultHours);
+  try {
+    setHostedStatus('Fetching guardian quote…');
+    const qRes = await fetch(`${backend.url}/guardian/quote?cid=${encodeURIComponent(hostedCid)}&hours=${hours}`);
+    const q = await qRes.json().catch(() => ({}));
+    if (!qRes.ok) throw new Error(q.message || `quote failed (${qRes.status})`);
+
+    setHostedStatus(`Pledging ${q.payment.amount} ${q.payment.currency} for ${q.quote.billable_hrs} h (Keychain)…`);
+    const txId = await keychainTransferGateToken({ to: q.payment.escrow_account, amount: q.payment.amount, memo: q.payment.memo, symbol: q.payment.currency });
+    if (!txId) throw new Error('payment cancelled or failed');
+
+    setHostedStatus('Waiting for tx to index (3s)…');
+    await new Promise(r => setTimeout(r, 3000));
+
+    const pRes = await fetch(`${backend.url}/guardian/pledge`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pledger: myUsername, cid: hostedCid, hours_requested: hours, tx_id: txId })
+    });
+    const pj = await pRes.json().catch(() => ({}));
+    if (!pRes.ok) throw new Error(`${pj.message || pRes.status} — payment tx ${txId} may need operator review (orphan-payments).`);
+    setHostedStatus(`✓ You are Guardian #${pj.queue_position} of ${pj.queue_depth} for this file — pledged ${pj.pledged_hours} h (budget ${pj.amount_escrowed} ${pj.currency}). Dormant: you pay nothing more unless the file would otherwise drop; cancel any time for a full refund.`);
+  } catch (e) { setHostedStatus('⚠ ' + e.message, true); }
+}
+
+async function hostOwnCopy() {
+  if (!myUsername) { setHostedStatus('Log in first.', true); return; }
+  if (!hostedCid) { setHostedStatus('No CID — re-run the check.', true); return; }
+  const backend = getStorageBackend();
+  if (backend.type !== 'ipfs-gate') { setHostedStatus('Own copy needs the ipfs-gate backend.', true); return; }
+  const hours = Math.max(1, parseInt(document.getElementById('hosted-hours').value) || gateDefaultHours);
+  try {
+    setHostedStatus('Fetching own-copy quote…');
+    const qRes = await fetch(`${backend.url}/claims/own-copy/quote?cid=${encodeURIComponent(hostedCid)}&hours=${hours}`);
+    const q = await qRes.json().catch(() => ({}));
+    if (!qRes.ok) throw new Error(q.message || `quote failed (${qRes.status})`);
+
+    setHostedStatus(`Paying ${q.payment.amount} ${q.payment.currency} for ${q.quote.billable_hrs} h (Keychain)…`);
+    const txId = await keychainTransferGateToken({ to: q.payment.escrow_account, amount: q.payment.amount, memo: q.payment.memo, symbol: q.payment.currency });
+    if (!txId) throw new Error('payment cancelled or failed');
+
+    setHostedStatus('Waiting for tx to index (3s)…');
+    await new Promise(r => setTimeout(r, 3000));
+
+    const cRes = await fetch(`${backend.url}/claims/own-copy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ owner: myUsername, cid: hostedCid, hours_requested: hours, tx_id: txId })
+    });
+    const cj = await cRes.json().catch(() => ({}));
+    if (!cRes.ok) throw new Error(`${cj.message || cRes.status} — payment tx ${txId} may need operator review (orphan-payments).`);
+    const until = cj.expires_at ? new Date(cj.expires_at).toLocaleString() : '?';
+    // Label it in the Uploads tab like a normal upload (gate stores no filename).
+    if (socket && socket.connected && hostedFileName) {
+      const ocMime = detectFileMime({ name: hostedFileName }) || 'application/octet-stream';
+      socket.emit('record-upload-meta', { cid: hostedCid, filename: hostedFileName, mime: ocMime, kind: mimeToKind(ocMime), context: 'own copy' });
+    }
+    setHostedStatus(`✓ Your own copy is live until ${until} (${cj.paid_hours} h paid, no re-upload needed). It survives regardless of what the other hosts do.`);
+    loadUploadsList();
+  } catch (e) { setHostedStatus('⚠ ' + e.message, true); }
+}
+
 async function uploadPublicFile(file, gatewayUrl) {
   const buf  = new Uint8Array(await file.arrayBuffer());
   const mime = detectFileMime(file) || 'application/octet-stream';
