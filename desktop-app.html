@@ -1128,6 +1128,14 @@
           </div>
         </div>
         <div id="uploads-list"><div class="uploads-status">Open this tab to load your uploads from the gate.</div></div>
+        <!-- Guardian pledges (dormant claims hold no pin, so they never appear in the uploads list above) -->
+        <div class="uploads-header" style="margin-top:14px;">
+          <span class="uploads-quota-mine">🛡 My Guardian Pledges</span>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+            <button class="uploads-refresh-btn" onclick="loadGuardianPledges(true)">🔄 Refresh</button>
+          </div>
+        </div>
+        <div id="guardian-pledges-list"><div class="uploads-status">Pledges you've made to keep OTHERS' files hosted — dormant pledges refund in full if cancelled.</div></div>
       </div>
       <div class="uploads-sub" id="uploads-sub-pinata" style="display:none;">
         <div class="uploads-header">
@@ -1304,6 +1312,17 @@
       <div style="display:flex;align-items:center;gap:8px;">
         <span id="pub-backend-line" style="font-size:0.78rem;color:var(--text);flex:1;"></span>
         <button type="button" onclick="openStorageModal()" style="background:var(--surface2);color:var(--subtext);border:1px solid var(--border)!important;font-size:0.74rem;padding:4px 9px;">⚙ Change</button>
+      </div>
+    </div>
+
+    <!-- Hours/copies dial (claim-model gate only — hidden on Pinata, which has no claim model) -->
+    <div style="margin-top:10px;" id="pub-opts-row">
+      <div style="font-size:0.68rem;color:var(--subtext);margin-bottom:5px;">HOSTING</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <label style="font-size:0.74rem;color:var(--text);">Hours hosted
+          <input type="number" id="pub-hours" min="1" value="168" oninput="this.dataset.touched='1';refreshPubEstimate()" style="width:90px;font-size:0.78rem;"/></label>
+        <label style="font-size:0.74rem;color:var(--text);">Copies <span id="pub-copies-note" style="color:var(--muted);font-size:0.68rem;"></span>
+          <input type="number" id="pub-copies" min="1" value="1" oninput="refreshPubEstimate()" style="width:70px;font-size:0.78rem;"/></label>
       </div>
     </div>
 
@@ -2399,7 +2418,7 @@ function switchLobbyTab(tab) {
     // Load whichever sub-tab is active so we don't trigger a gate-signature
     // Keychain prompt when the user is sitting on the Pinata sub-tab.
     const onPinata = document.getElementById('uploads-sub-pinata')?.style.display !== 'none';
-    if (onPinata) loadPinataList(); else loadUploadsList();
+    if (onPinata) loadPinataList(); else { loadUploadsList(); loadGuardianPledges(); }
   }
 }
 
@@ -4589,6 +4608,11 @@ let gateRatePerMbHour = null;    // for the pre-file rate hint on the cost line
 let gateMbDivisor     = 1000000; // decimal MB (bytes / 1e6), per PRICING-V1
 let gatePayCurrency   = null;    // gate's PAYMENT_CURRENCY from GET /
 let gateCopiesMax     = 1;       // pricing.copies_max — replication dial cap (1 on single-node)
+// Whitelist / gated-server mode (gate-side feature): the my* pair arrives with
+// the SIGNED /uploads/by-user response. myFeeExempt drives "Free (fee-exempt)"
+// cost lines + the pay flows skipping Keychain when the gate quotes 0.
+let myWhitelisted     = null;    // true|false|null (null = mode off or not yet known)
+let myFeeExempt       = false;
 let gateMinHours      = 1;       // pricing.min_hours — minimum billable duration (fee floor)
 // v0.16.17 — `mode` is 'room' (existing) or 'dm' (new). dmTarget/dmRate/
 // dmCurrency/dmEscrow populated only in 'dm' mode and copied from the open
@@ -5030,6 +5054,7 @@ function switchUploadsSub(sub) {
   if (g) g.style.display = sub === 'gate' ? 'flex' : 'none';
   if (p) p.style.display = sub === 'pinata' ? 'flex' : 'none';
   if (sub === 'pinata') loadPinataList();
+  else { loadUploadsList(); loadGuardianPledges(); }
 }
 
 // ── Management-key modal ──
@@ -5313,6 +5338,9 @@ function renderBackendLines() {
   const pv = document.getElementById('priv-backend-line'); if (pv) pv.textContent = desc;
   const ac = document.getElementById('att-cost-line');
   const pc = document.getElementById('pub-cost-line');
+  // Hours/copies only mean anything on the claim-model gate — hide for Pinata.
+  const pubOpts = document.getElementById('pub-opts-row');
+  if (pubOpts) pubOpts.style.display = (b.type === 'pinata') ? 'none' : '';
   if (b.type === 'pinata') {
     const t = b.jwt ? 'You pay Pinata directly — no Hive or v4call fee' : '⚠ Set your Pinata key (⚙ Change) before uploading';
     if (ac) ac.textContent = t;
@@ -5583,9 +5611,21 @@ function renderUploadsList(data, gw, ctx) {
   mineEl.textContent = `Your uploads: ${bytesToHuman(yourBytes)} across ${active.length} file${active.length === 1 ? '' : 's'}`;
 
   const q = data.quota || {};
+  // Whitelist-mode identity rides on this signed response — capture it so the
+  // cost lines ("Free (fee-exempt)") and pay flows know before the next upload.
+  myWhitelisted = (typeof q.whitelisted === 'boolean') ? q.whitelisted : null;
+  myFeeExempt = !!q.fee_exempt;
+
   sharedEl.textContent = q.limit_bytes
-    ? `Gate storage: ${bytesToHuman(q.used_bytes || 0)} of ${bytesToHuman(q.limit_bytes)} used (shared across all users)`
+    ? (q.quota_scope === 'per_account'
+        ? `Your quota: ${bytesToHuman(q.used_bytes || 0)} of ${bytesToHuman(q.limit_bytes)} (per-account cap on this gate)`
+        : `Gate storage: ${bytesToHuman(q.used_bytes || 0)} of ${bytesToHuman(q.limit_bytes)} used (shared across all users)`)
     : '';
+  if (myWhitelisted === false) {
+    sharedEl.textContent = '🔒 This gate is invite-only and your account is NOT whitelisted — uploads will be rejected. Ask the operator for access.';
+  } else if (myFeeExempt) {
+    sharedEl.textContent += (sharedEl.textContent ? ' · ' : '') + '✓ fee-exempt (uploads are free)';
+  }
 
   if (uploads.length === 0) {
     listEl.innerHTML = '<div class="uploads-empty">No uploads yet. Send an attachment (📎) or use Public upload to put a file on the gate.</div>';
@@ -5636,11 +5676,20 @@ function buildUploadRow(u, gw, ctx) {
   let uploadedTxt = '';
   try { uploadedTxt = u.uploaded_at ? new Date(u.uploaded_at).toLocaleString() : ''; } catch (_) {}
 
+  // Claim-kind badge + per-file guardian summary (gate returns these since the
+  // guardian-tracking update; both absent on older gates → render nothing).
+  const kindLabel = u.kind === 'own_copy' ? 'own copy' : u.kind === 'guardian' ? 'guardian' : null;
+  const g = u.guardians;
+  const guardianLine = (g && (g.queue_depth > 0 || g.co_hosts > 0))
+    ? `<div class="upl-ctx">🛡 ${g.queue_depth} guardian(s) pledged (${g.pledged_hours_total}h)${g.co_hosts > 0 ? ` · ${g.co_hosts} co-host(s)` : ''}</div>`
+    : '';
+
   row.innerHTML = `
     <div class="upl-top">
       <span class="upl-icon">${icon}</span>
       <span class="upl-name">${escapeHtml(name)}</span>
       <span class="upl-mode ${isPublic ? 'public' : 'encrypted'}">${isPublic ? 'public' : 'encrypted'}</span>
+      ${kindLabel ? `<span class="upl-mode">${escapeHtml(kindLabel)}</span>` : ''}
     </div>
     <div class="upl-meta">
       <span>${bytesToHuman(u.size_bytes || 0)}</span>
@@ -5648,11 +5697,10 @@ function buildUploadRow(u, gw, ctx) {
       ${uploadedTxt ? `<span>↑ ${escapeHtml(uploadedTxt)}</span>` : ''}
       <span class="upl-status ${statusCls}">${escapeHtml(statusTxt)}</span>
     </div>
+    ${guardianLine}
     ${ctx && ctx.context ? `<div class="upl-ctx">${escapeHtml(ctx.context)}</div>` : ''}
     ${isPublic && u.public_url ? `<div class="upl-actions"><span class="upl-publink">${escapeHtml(u.public_url)}</span><button class="upl-btn" data-act="copy">📋 Copy link</button><button class="upl-btn" data-act="open">↗ Open</button></div>` : ''}
-    <div class="upl-actions upl-action-bar">
-      ${isActive ? '<button class="upl-btn danger" data-act="delete">🗑 Delete / unpin</button>' : ''}
-    </div>
+    <div class="upl-actions upl-action-bar"></div>
   `;
 
   // Event wiring via listeners (no inline onclick with dynamic data — XSS
@@ -5667,12 +5715,29 @@ function buildUploadRow(u, gw, ctx) {
         });
       } else if (act === 'open') {
         window.open(u.public_url, '_blank', 'noopener');
-      } else if (act === 'delete') {
-        promptDeleteUpload(row, u, gw);
       }
     });
   });
+  resetUploadActionBar(row, u, gw);
   return row;
+}
+
+// Default action bar for an upload row — extend (claim-model pins only; a
+// legacy pin has no claim_id and can only be re-uploaded) + delete. Shared by
+// buildUploadRow and every prompt's Cancel path so the buttons never get lost.
+function resetUploadActionBar(row, u, gw) {
+  const bar = row.querySelector('.upl-action-bar');
+  if (!bar) return;
+  if (u.status !== 'active') { bar.innerHTML = ''; return; }
+  bar.innerHTML = `
+    ${u.claim_id ? '<button class="upl-btn" data-act="extend">⏳ Extend</button>' : ''}
+    <button class="upl-btn danger" data-act="delete">🗑 Delete / unpin</button>`;
+  const ext = bar.querySelector('[data-act="extend"]');
+  if (ext) ext.addEventListener('click', () => promptExtendClaim(row, u.claim_id, gw, {
+    resetBar: () => resetUploadActionBar(row, u, gw),
+    refresh: () => loadUploadsList()
+  }));
+  bar.querySelector('[data-act="delete"]').addEventListener('click', () => promptDeleteUpload(row, u, gw));
 }
 
 function promptDeleteUpload(row, u, gw) {
@@ -5684,11 +5749,76 @@ function promptDeleteUpload(row, u, gw) {
   bar.innerHTML = `<span class="upl-confirm">${escapeHtml(warn)}
       <button class="upl-btn danger" data-c="yes">Confirm</button>
       <button class="upl-btn" data-c="no">Cancel</button></span>`;
-  bar.querySelector('[data-c="no"]').addEventListener('click', () => {
-    bar.innerHTML = '<button class="upl-btn danger" data-act="delete">🗑 Delete / unpin</button>';
-    bar.querySelector('[data-act="delete"]').addEventListener('click', () => promptDeleteUpload(row, u, gw));
-  });
+  bar.querySelector('[data-c="no"]').addEventListener('click', () => resetUploadActionBar(row, u, gw));
   bar.querySelector('[data-c="yes"]').addEventListener('click', () => deleteUpload(row, u, gw));
+}
+
+// ── Extend / top-up — billed at the claim's LOCKED rate, never the live rate.
+// Generic over any active claim the user owns: My-Uploads rows + an ACTIVATED
+// guardian claim in the pledges list. A $0 quote (fee-exempt claim,
+// rate_locked 0) skips Keychain entirely, matching the gate's synthetic-
+// payment path.
+function promptExtendClaim(row, claimId, gw, opts) {
+  const bar = row.querySelector('.upl-action-bar');
+  if (!bar) return;
+  bar.innerHTML = `<span class="upl-confirm">Extend by
+      <input type="number" min="1" value="${gateDefaultHours}" style="width:80px;" data-ext-hours> h
+      <button class="upl-btn" data-e="quote">Get quote</button>
+      <button class="upl-btn" data-e="no">Cancel</button></span>`;
+  bar.querySelector('[data-e="no"]').addEventListener('click', opts.resetBar);
+  bar.querySelector('[data-e="quote"]').addEventListener('click', async () => {
+    const hours = Math.max(1, parseInt(bar.querySelector('[data-ext-hours]').value) || 1);
+    bar.innerHTML = '<span class="upl-confirm">… fetching quote</span>';
+    let q;
+    try {
+      const qRes = await fetch(`${gw}/claims/extend/quote?claim_id=${encodeURIComponent(claimId)}&hours=${hours}`);
+      q = await qRes.json().catch(() => ({}));
+      if (!qRes.ok) throw new Error(q.message || `quote failed (${qRes.status})`);
+    } catch (e) {
+      bar.innerHTML = `<span class="upl-confirm">⚠ ${escapeHtml(e.message)} <button class="upl-btn" data-e="back">OK</button></span>`;
+      bar.querySelector('[data-e="back"]').addEventListener('click', opts.resetBar);
+      return;
+    }
+    const free = Number(q.quote.total) === 0;
+    bar.innerHTML = `<span class="upl-confirm">${free
+        ? `Free (fee-exempt) — add ${q.quote.extra_hrs} h?`
+        : `${escapeHtml(String(q.quote.total))} ${escapeHtml(q.quote.currency || '')} for ${q.quote.extra_hrs} h more (locked rate).`}
+        <button class="upl-btn" data-e="go">${free ? '⏳ Extend free' : '⏳ Pay & extend'}</button>
+        <button class="upl-btn" data-e="no">Cancel</button></span>`;
+    bar.querySelector('[data-e="no"]').addEventListener('click', opts.resetBar);
+    bar.querySelector('[data-e="go"]').addEventListener('click', () => executeExtendClaim(bar, claimId, gw, q, opts));
+  });
+}
+
+async function executeExtendClaim(bar, claimId, gw, q, opts) {
+  try {
+    let txId = null;
+    if (Number(q.quote.total) > 0) {
+      bar.innerHTML = '<span class="upl-confirm">… paying (Keychain)</span>';
+      txId = await keychainTransferGateToken({
+        to: q.payment.escrow_account, amount: q.payment.amount,
+        memo: q.payment.memo, symbol: q.payment.currency
+      });
+      if (!txId) { bar.innerHTML = '<span class="upl-confirm">⚠ payment cancelled</span>'; setTimeout(opts.resetBar, 1500); return; }
+      bar.innerHTML = '<span class="upl-confirm">… waiting for tx to index (3s)</span>';
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    bar.innerHTML = '<span class="upl-confirm">… extending</span>';
+    const resp = await fetch(`${gw}/claims/extend`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim_id: claimId, extra_hours: q.quote.extra_hrs, ...(txId ? { tx_id: txId } : {}) })
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      bar.innerHTML = `<span class="upl-confirm">⚠ extend failed: ${escapeHtml(j.message || String(resp.status))}${txId ? ` — payment tx ${escapeHtml(txId)} may need operator review (orphan-payments).` : ''}</span>`;
+      return;
+    }
+    const until = j.expires_at ? new Date(j.expires_at).toLocaleString() : '?';
+    bar.innerHTML = `<span class="upl-confirm" style="color:var(--green);">✓ +${j.added_hours} h — hosted until ${escapeHtml(until)}</span>`;
+    if (opts.refresh) setTimeout(opts.refresh, 1500);
+  } catch (e) {
+    bar.innerHTML = `<span class="upl-confirm">⚠ ${escapeHtml(e.message)}</span>`;
+  }
 }
 
 async function deleteUpload(row, u, gw) {
@@ -5726,6 +5856,153 @@ function markRowRemoved(row, fullyUnpinned) {
   if (bar) bar.innerHTML = `<span class="upl-confirm" style="color:var(--green);">✓ unpinned${fullyUnpinned === false ? ' (other copies remain)' : ''}</span>`;
 }
 
+// ── My Guardian Pledges — kind='guardian' claims this account holds on OTHERS'
+// files. A dormant pledge holds no pins row, so it never appears in the uploads
+// list above; GET /claims/mine (signed, same pattern as /uploads/by-user) is
+// the only place to see + cancel one. Mirrors the gate's standalone page.
+let _claimsListSig = null;
+
+async function getClaimsRequestSig() {
+  if (_claimsListSig && _claimsListSig.account === myUsername
+      && (Date.now() - _claimsListSig.signedAt) < 240000) {
+    return _claimsListSig;
+  }
+  const ts  = Math.floor(Date.now() / 1000);
+  const msg = `ipfs-gate:list-claims:v1:${myUsername}:${ts}`;
+  const sig = await signRaw(msg);
+  if (!sig) throw new Error('could not sign the request (Keychain declined or no key)');
+  _claimsListSig = { ts, sig, pubkey: myPubKey, account: myUsername, signedAt: Date.now() };
+  return _claimsListSig;
+}
+
+async function loadGuardianPledges(forceResign) {
+  const listEl = document.getElementById('guardian-pledges-list');
+  if (!listEl) return;
+  if (!myUsername) { listEl.innerHTML = '<div class="uploads-status">Log in first.</div>'; return; }
+  if (forceResign) _claimsListSig = null;
+  const gw = getRememberedGateway();
+  listEl.innerHTML = `<div class="uploads-status">… loading your guardian pledges from ${escapeHtml(gw)}</div>`;
+  let s;
+  try { s = await getClaimsRequestSig(); }
+  catch (e) { listEl.innerHTML = `<div class="uploads-status">⚠ ${escapeHtml(e.message)}</div>`; return; }
+  const qs = `hive_account=${encodeURIComponent(myUsername)}&ts=${s.ts}`
+           + `&pubkey=${encodeURIComponent(s.pubkey)}&sig=${encodeURIComponent(s.sig)}`;
+  let resp;
+  try {
+    resp = await fetch(`${gw}/claims/mine?${qs}`, { method: 'GET' });
+  } catch (e) {
+    listEl.innerHTML = `<div class="uploads-status">⚠ could not reach the gate at ${escapeHtml(gw)}.</div>`;
+    return;
+  }
+  if (resp.status === 404) { listEl.innerHTML = '<div class="uploads-status">This gate doesn\'t support guardian-pledge tracking yet (older gate version).</div>'; return; }
+  if (resp.status === 401) { _claimsListSig = null; listEl.innerHTML = '<div class="uploads-status">⚠ the gate rejected your signature (401). Hit Refresh to re-sign.</div>'; return; }
+  if (resp.status === 422) { _claimsListSig = null; listEl.innerHTML = '<div class="uploads-status">⚠ the gate could not verify your Hive identity right now (422). Try Refresh in a moment.</div>'; return; }
+  if (!resp.ok) { listEl.innerHTML = `<div class="uploads-status">⚠ gate error (${resp.status}).</div>`; return; }
+  let data;
+  try { data = await resp.json(); }
+  catch (e) { listEl.innerHTML = '<div class="uploads-status">⚠ bad response from the gate.</div>'; return; }
+  renderGuardianPledges(data, gw);
+}
+
+function renderGuardianPledges(data, gw) {
+  const listEl = document.getElementById('guardian-pledges-list');
+  const claims = (Array.isArray(data.claims) ? data.claims : []).filter(c => c.kind === 'guardian');
+  if (claims.length === 0) {
+    listEl.innerHTML = '<div class="uploads-empty">No guardian pledges yet. When a public upload is already hosted on the gate, you can 🛡 Become a Guardian instead of re-uploading.</div>';
+    return;
+  }
+  claims.sort((a, b) => new Date(b.created_ts || 0) - new Date(a.created_ts || 0));
+  listEl.innerHTML = '';
+  claims.forEach(c => listEl.appendChild(buildGuardianPledgeRow(c, gw)));
+}
+
+function buildGuardianPledgeRow(c, gw) {
+  const row = document.createElement('div');
+  row.className = 'upl-row' + (c.state === 'dormant' || c.state === 'active' ? '' : ' inactive');
+  row.dataset.claimId = c.claim_id;
+
+  const stateTxt = c.state === 'dormant' ? '🕓 pledged, waiting'
+                 : c.state === 'active'  ? '🛡 currently hosting'
+                 : c.state === 'cancelled' ? 'cancelled'
+                 : c.state === 'expired' ? 'expired'
+                 : (c.state || 'unknown');
+  const expiryTxt = c.state === 'dormant' ? 'not started' : (c.expiry_ts ? new Date(c.expiry_ts).toLocaleString() : '?');
+
+  row.innerHTML = `
+    <div class="upl-top">
+      <span class="upl-icon">🛡</span>
+      <span class="upl-name" title="${escapeHtml(c.cid)}">cid:${escapeHtml(String(c.cid).slice(0, 12))}…</span>
+      <span class="upl-mode">${escapeHtml(stateTxt)}</span>
+    </div>
+    <div class="upl-meta">
+      <span>#${escapeHtml(String(c.pledge_order ?? '?'))} in queue</span>
+      <span>pledged ${escapeHtml(String(c.paid_hours))}h (budget ${escapeHtml(String(c.pledge_budget ?? c.amount_paid))} ${escapeHtml(c.currency || '')})</span>
+      <span>${c.state === 'dormant' ? 'starts if promoted' : 'until'}: ${escapeHtml(expiryTxt)}</span>
+    </div>
+    <div class="upl-actions upl-action-bar">
+      ${c.state === 'dormant' ? '<button class="upl-btn danger" data-act="cancel">✕ Cancel pledge</button>'
+        : c.state === 'active' ? '<button class="upl-btn" data-act="extend">⏳ Extend</button>' : ''}
+    </div>
+  `;
+
+  const cancelBtn = row.querySelector('[data-act="cancel"]');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => promptCancelPledge(row, c, gw));
+  // An ACTIVATED guardian is now the live host — extending its claim extends
+  // the file's hosting, same endpoint as any other active claim.
+  const extendBtn = row.querySelector('[data-act="extend"]');
+  if (extendBtn) {
+    const extOpts = {
+      resetBar: () => {
+        const bar = row.querySelector('.upl-action-bar');
+        if (!bar) return;
+        bar.innerHTML = '<button class="upl-btn" data-act="extend">⏳ Extend</button>';
+        bar.querySelector('[data-act="extend"]').addEventListener('click', () => promptExtendClaim(row, c.claim_id, gw, extOpts));
+      },
+      refresh: () => loadGuardianPledges()
+    };
+    extendBtn.addEventListener('click', () => promptExtendClaim(row, c.claim_id, gw, extOpts));
+  }
+  return row;
+}
+
+function promptCancelPledge(row, c, gw) {
+  const bar = row.querySelector('.upl-action-bar');
+  if (!bar) return;
+  bar.innerHTML = `<span class="upl-confirm">Cancel this pledge? Dormant pledges refund in full.
+      <button class="upl-btn danger" data-c="yes">Confirm</button>
+      <button class="upl-btn" data-c="no">Cancel</button></span>`;
+  bar.querySelector('[data-c="no"]').addEventListener('click', () => {
+    bar.innerHTML = '<button class="upl-btn danger" data-act="cancel">✕ Cancel pledge</button>';
+    bar.querySelector('[data-act="cancel"]').addEventListener('click', () => promptCancelPledge(row, c, gw));
+  });
+  bar.querySelector('[data-c="yes"]').addEventListener('click', () => cancelPledge(row, c, gw));
+}
+
+async function cancelPledge(row, c, gw) {
+  const bar = row.querySelector('.upl-action-bar');
+  if (bar) bar.innerHTML = '<span class="upl-confirm">… cancelling</span>';
+  const ts  = Math.floor(Date.now() / 1000);
+  const msg = `ipfs-gate:cancel-claim:v1:${c.claim_id}:${myUsername}:${ts}`;
+  let sig = '';
+  try { sig = await signRaw(msg); } catch (_) {}
+  if (!sig) { if (bar) bar.innerHTML = '<span class="upl-confirm">⚠ signing declined</span>'; return; }
+  let resp;
+  try {
+    resp = await fetch(`${gw}/claims/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim_id: c.claim_id, hive_account: myUsername, ts, pubkey: myPubKey, sig })
+    });
+  } catch (e) {
+    if (bar) bar.innerHTML = '<span class="upl-confirm">⚠ could not reach the gate</span>';
+    return;
+  }
+  if (!resp.ok) { const j = await resp.json().catch(() => ({})); if (bar) bar.innerHTML = `<span class="upl-confirm">⚠ cancel failed (${escapeHtml(j.message || String(resp.status))})</span>`; return; }
+  row.classList.add('inactive');
+  if (bar) bar.innerHTML = '<span class="upl-confirm" style="color:var(--green);">✓ cancelled — refunded in full</span>';
+  loadGuardianPledges();
+}
+
 // ── Public upload (Phase 3) ──────────────────────────────────────────────
 // Plaintext upload → shareable gateway link, started from the Uploads tab.
 // Reuses the exact reserve→sign→pay→upload mechanics as encrypted attachments,
@@ -5746,6 +6023,10 @@ function openPublicUploadModal() {
   const hp = document.getElementById('pub-hosted-panel'); hp.style.display = 'none'; hp.innerHTML = '';
   hostedCid = null;
   document.getElementById('pub-upload-btn').disabled = false;
+  const hoursEl = document.getElementById('pub-hours');
+  if (hoursEl && !hoursEl.dataset.touched) hoursEl.value = String(gateDefaultHours);
+  const note = document.getElementById('pub-copies-note');
+  if (note) note.textContent = gateCopiesMax <= 1 ? '(single-node → 1)' : `(up to ${gateCopiesMax})`;
   setPubStatus('Ready.');
   document.getElementById('public-upload-modal').style.display = 'flex';
   renderBackendLines();
@@ -5760,10 +6041,28 @@ function onPubFilePick() {
   const hp = document.getElementById('pub-hosted-panel');
   if (hp) { hp.style.display = 'none'; hp.innerHTML = ''; }
   hostedCid = null;
-  if (!f) { meta.textContent = ''; return; }
+  if (!f) { meta.textContent = ''; refreshPubEstimate(); return; }
   const mime = detectFileMime(f) || 'application/octet-stream';
   const warn = (getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes) ? ` ⚠ over gate cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB)` : '';
   meta.textContent = `${f.name} · ${bytesToHuman(f.size)} · ${mime}${warn}`;
+  refreshPubEstimate();
+}
+// Concrete pre-pay estimate for the picked file at the chosen hours/copies —
+// same rate the gate will actually charge (its GET / config), so the number
+// matches the /reserve quote. Fee-exempt accounts see "Free" instead.
+function refreshPubEstimate() {
+  const el = document.getElementById('pub-cost-line');
+  if (!el) return;
+  if (getStorageBackend().type === 'pinata') return;   // Pinata: no gate pricing
+  const f = (document.getElementById('pub-file-input').files || [])[0];
+  if (!f) return;                                       // keep the generic rate hint
+  const hours = Math.max(1, parseInt(document.getElementById('pub-hours').value) || gateDefaultHours);
+  const copies = Math.max(1, Math.min(gateCopiesMax, parseInt(document.getElementById('pub-copies').value) || 1));
+  if (myFeeExempt) { el.textContent = `Free — fee-exempt (${(f.size / gateMbDivisor).toFixed(2)} MB × ${hours} h × ${copies} cop)`; return; }
+  if (!gateRatePerMbHour) { el.textContent = `${(f.size / 1e6).toFixed(2)} MB × ${hours} h × ${copies} — exact at pay`; return; }
+  const mb = f.size / gateMbDivisor;
+  const est = gateRatePerMbHour * mb * hours * copies;
+  el.textContent = `≈ ${est.toFixed(3)} ${gatePayCurrency || '?'} (${mb.toFixed(2)} MB × ${hours} h × ${copies} cop)`;
 }
 function showPubResult(url) {
   const r = document.getElementById('pub-result');
@@ -5882,20 +6181,27 @@ async function becomeGuardian() {
   const hours = Math.max(1, parseInt(document.getElementById('hosted-hours').value) || gateDefaultHours);
   try {
     setHostedStatus('Fetching guardian quote…');
-    const qRes = await fetch(`${backend.url}/guardian/quote?cid=${encodeURIComponent(hostedCid)}&hours=${hours}`);
+    // hive_account → the gate answers with fee_exempt for a whitelisted-free
+    // account, so the $0 shows before pay instead of surprising at Keychain.
+    const qRes = await fetch(`${backend.url}/guardian/quote?cid=${encodeURIComponent(hostedCid)}&hours=${hours}&hive_account=${encodeURIComponent(myUsername)}`);
     const q = await qRes.json().catch(() => ({}));
     if (!qRes.ok) throw new Error(q.message || `quote failed (${qRes.status})`);
 
-    setHostedStatus(`Pledging ${q.payment.amount} ${q.payment.currency} for ${q.quote.billable_hrs} h (Keychain)…`);
-    const txId = await keychainTransferGateToken({ to: q.payment.escrow_account, amount: q.payment.amount, memo: q.payment.memo, symbol: q.payment.currency });
-    if (!txId) throw new Error('payment cancelled or failed');
+    let txId = null;
+    if (q.quote && q.quote.fee_exempt) {
+      setHostedStatus('Free (fee-exempt) — pledging…');
+    } else {
+      setHostedStatus(`Pledging ${q.payment.amount} ${q.payment.currency} for ${q.quote.billable_hrs} h (Keychain)…`);
+      txId = await keychainTransferGateToken({ to: q.payment.escrow_account, amount: q.payment.amount, memo: q.payment.memo, symbol: q.payment.currency });
+      if (!txId) throw new Error('payment cancelled or failed');
 
-    setHostedStatus('Waiting for tx to index (3s)…');
-    await new Promise(r => setTimeout(r, 3000));
+      setHostedStatus('Waiting for tx to index (3s)…');
+      await new Promise(r => setTimeout(r, 3000));
+    }
 
     const pRes = await fetch(`${backend.url}/guardian/pledge`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pledger: myUsername, cid: hostedCid, hours_requested: hours, tx_id: txId })
+      body: JSON.stringify({ pledger: myUsername, cid: hostedCid, hours_requested: hours, ...(txId ? { tx_id: txId } : {}) })
     });
     const pj = await pRes.json().catch(() => ({}));
     if (!pRes.ok) throw new Error(`${pj.message || pRes.status} — payment tx ${txId} may need operator review (orphan-payments).`);
@@ -5911,20 +6217,25 @@ async function hostOwnCopy() {
   const hours = Math.max(1, parseInt(document.getElementById('hosted-hours').value) || gateDefaultHours);
   try {
     setHostedStatus('Fetching own-copy quote…');
-    const qRes = await fetch(`${backend.url}/claims/own-copy/quote?cid=${encodeURIComponent(hostedCid)}&hours=${hours}`);
+    const qRes = await fetch(`${backend.url}/claims/own-copy/quote?cid=${encodeURIComponent(hostedCid)}&hours=${hours}&hive_account=${encodeURIComponent(myUsername)}`);
     const q = await qRes.json().catch(() => ({}));
     if (!qRes.ok) throw new Error(q.message || `quote failed (${qRes.status})`);
 
-    setHostedStatus(`Paying ${q.payment.amount} ${q.payment.currency} for ${q.quote.billable_hrs} h (Keychain)…`);
-    const txId = await keychainTransferGateToken({ to: q.payment.escrow_account, amount: q.payment.amount, memo: q.payment.memo, symbol: q.payment.currency });
-    if (!txId) throw new Error('payment cancelled or failed');
+    let txId = null;
+    if (q.quote && q.quote.fee_exempt) {
+      setHostedStatus('Free (fee-exempt) — claiming your copy…');
+    } else {
+      setHostedStatus(`Paying ${q.payment.amount} ${q.payment.currency} for ${q.quote.billable_hrs} h (Keychain)…`);
+      txId = await keychainTransferGateToken({ to: q.payment.escrow_account, amount: q.payment.amount, memo: q.payment.memo, symbol: q.payment.currency });
+      if (!txId) throw new Error('payment cancelled or failed');
 
-    setHostedStatus('Waiting for tx to index (3s)…');
-    await new Promise(r => setTimeout(r, 3000));
+      setHostedStatus('Waiting for tx to index (3s)…');
+      await new Promise(r => setTimeout(r, 3000));
+    }
 
     const cRes = await fetch(`${backend.url}/claims/own-copy`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner: myUsername, cid: hostedCid, hours_requested: hours, tx_id: txId })
+      body: JSON.stringify({ owner: myUsername, cid: hostedCid, hours_requested: hours, ...(txId ? { tx_id: txId } : {}) })
     });
     const cj = await cRes.json().catch(() => ({}));
     if (!cRes.ok) throw new Error(`${cj.message || cRes.status} — payment tx ${txId} may need operator review (orphan-payments).`);
@@ -5957,11 +6268,14 @@ async function uploadPublicFile(file, gatewayUrl) {
 
   setPubStatus('Reserving quota…');
   // §1 cutover — send hours_requested/copies so the claim-model gate quotes a
-  // known duration (≈ the old 7-day TTL) instead of silently billing DEFAULT_HOURS.
+  // known duration instead of silently billing DEFAULT_HOURS. Now user-chosen
+  // via the modal's HOSTING dial (matches the gate's own standalone page).
   // Old flat-fee gates ignore these fields and return no `quote`.
+  const pubHours  = Math.max(1, parseInt(document.getElementById('pub-hours')?.value) || gateDefaultHours);
+  const pubCopies = Math.max(1, Math.min(gateCopiesMax, parseInt(document.getElementById('pub-copies')?.value) || 1));
   const reserveRes = await fetch(`${gatewayUrl}/reserve`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uploader: myUsername, size_bytes: buf.length, mode: 'public', hours_requested: gateDefaultHours, copies: 1 })
+    body: JSON.stringify({ uploader: myUsername, size_bytes: buf.length, mode: 'public', hours_requested: pubHours, copies: pubCopies })
   });
   if (!reserveRes.ok) { const j = await reserveRes.json().catch(() => ({})); throw new Error(`reserve failed: ${j.message || reserveRes.status}`); }
   const reserve       = await reserveRes.json();
@@ -5970,10 +6284,15 @@ async function uploadPublicFile(file, gatewayUrl) {
   const memo          = reserve.payment.memo;
   const payAmount     = reserve.payment.amount;
   const payCurrency   = (reserve.payment.currency || 'CNOOBS').toUpperCase();
+  // Whitelist fee exemption: gate quoted 0 and accepts the upload with no
+  // on-chain payment (no tx_id) — skip Keychain entirely.
+  const feeExempt = !!(reserve.quote && reserve.quote.fee_exempt);
   // Surface the computed quote before the Keychain pop (no-op on an old gate).
   if (reserve.quote) {
     const q = reserve.quote;
-    setPubStatus(`Quote: ${q.total} ${q.currency} — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop${q.copies_capped ? ' (copies capped to node count)' : ''}.`);
+    setPubStatus(feeExempt
+      ? `Free (fee-exempt) — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop.`
+      : `Quote: ${q.total} ${q.currency} — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop${q.copies_capped ? ' (copies capped to node count)' : ''}.`);
   }
 
   setPubStatus('Signing upload proof (Keychain)…');
@@ -5981,17 +6300,20 @@ async function uploadPublicFile(file, gatewayUrl) {
   const uploadProofSig = await signRaw(proofMsg);
   if (!uploadProofSig) throw new Error('upload proof signature cancelled');
 
-  setPubStatus(`Paying ${payAmount} ${payCurrency} (Keychain)…`);
-  const txId = await keychainTransferGateToken({ to: escrowAccount, amount: payAmount, memo, symbol: payCurrency });
-  if (!txId) throw new Error('payment cancelled or failed');
+  let txId = null;
+  if (!feeExempt) {
+    setPubStatus(`Paying ${payAmount} ${payCurrency} (Keychain)…`);
+    txId = await keychainTransferGateToken({ to: escrowAccount, amount: payAmount, memo, symbol: payCurrency });
+    if (!txId) throw new Error('payment cancelled or failed');
 
-  setPubStatus('Waiting for tx to index (3s)…');
-  await new Promise(r => setTimeout(r, 3000));
+    setPubStatus('Waiting for tx to index (3s)…');
+    await new Promise(r => setTimeout(r, 3000));
+  }
 
   setPubStatus('Uploading (plaintext)…');
   const form = new FormData();
   form.append('reservation_id', reservationId);
-  form.append('tx_id', txId);
+  if (txId) form.append('tx_id', txId);
   form.append('uploader_pubkey', myPubKey);
   form.append('upload_proof_sig', uploadProofSig);
   form.append('mode', 'public');
@@ -6004,9 +6326,11 @@ async function uploadPublicFile(file, gatewayUrl) {
   try {
     upRes = await fetch(`${gatewayUrl}/upload`, { method: 'POST', body: form });
   } catch (e) {
-    throw new Error(`upload failed (${e.message}) — your ${payAmount} ${payCurrency} payment to ${escrowAccount} was already broadcast. tx: ${txId} · reservation: ${reservationId}. Ask the operator to check /admin/orphan-payments.`);
+    throw new Error(txId
+      ? `upload failed (${e.message}) — your ${payAmount} ${payCurrency} payment to ${escrowAccount} was already broadcast. tx: ${txId} · reservation: ${reservationId}. Ask the operator to check /admin/orphan-payments.`
+      : `upload failed (${e.message}) — nothing was paid (fee-exempt); just retry.`);
   }
-  if (!upRes.ok) { const j = await upRes.json().catch(() => ({})); throw new Error(`upload failed: ${j.message || upRes.status} — payment tx ${txId} may need operator review (orphan-payments).`); }
+  if (!upRes.ok) { const j = await upRes.json().catch(() => ({})); throw new Error(`upload failed: ${j.message || upRes.status}${txId ? ` — payment tx ${txId} may need operator review (orphan-payments).` : ' — nothing was paid (fee-exempt); just retry.'}`); }
   const upJson = await upRes.json();
   const cid    = upJson.cid;
   let url = upJson.gateway_url || '';
@@ -6223,9 +6547,13 @@ async function runPrivateSend({ file, gatewayUrl, recipients, hours, copies, pol
   const memo          = reserve.payment.memo;
   const payAmount     = reserve.payment.amount;
   const payCurrency   = (reserve.payment.currency || gatePayCurrency || 'TEST').toUpperCase();
+  // Whitelist fee exemption: gate quoted 0, upload accepted with no tx_id.
+  const feeExempt = !!(reserve.quote && reserve.quote.fee_exempt);
   if (reserve.quote) {
     const q = reserve.quote;
-    setPrivStatus(`Quote: ${q.total} ${q.currency} — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop${q.copies_capped ? ' (copies capped to node count)' : ''}.`);
+    setPrivStatus(feeExempt
+      ? `Free (fee-exempt) — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop.`
+      : `Quote: ${q.total} ${q.currency} — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop${q.copies_capped ? ' (copies capped to node count)' : ''}.`);
   }
 
   // 3) Sign upload proof.
@@ -6234,20 +6562,22 @@ async function runPrivateSend({ file, gatewayUrl, recipients, hours, copies, pol
   const uploadProofSig = await signRaw(proofMsg);
   if (!uploadProofSig) throw new Error('upload proof signature cancelled');
 
-  // 4) Pay.
-  setPrivStatus(`Paying ${payAmount} ${payCurrency} (Keychain)…`);
-  const txId = await keychainTransferGateToken({ to: escrowAccount, amount: payAmount, memo, symbol: payCurrency });
-  if (!txId) throw new Error('payment cancelled or failed');
+  // 4-5) Pay + settle delay (skipped entirely when fee-exempt).
+  let txId = null;
+  if (!feeExempt) {
+    setPrivStatus(`Paying ${payAmount} ${payCurrency} (Keychain)…`);
+    txId = await keychainTransferGateToken({ to: escrowAccount, amount: payAmount, memo, symbol: payCurrency });
+    if (!txId) throw new Error('payment cancelled or failed');
 
-  // 5) Settle delay so the tx is indexed before /upload checks it.
-  setPrivStatus('Waiting for tx to index (3s)…');
-  await new Promise(r => setTimeout(r, 3000));
+    setPrivStatus('Waiting for tx to index (3s)…');
+    await new Promise(r => setTimeout(r, 3000));
+  }
 
   // 6) Upload ciphertext + release_policy + commitment.
   setPrivStatus('Uploading ciphertext…');
   const form = new FormData();
   form.append('reservation_id', reservationId);
-  form.append('tx_id', txId);
+  if (txId) form.append('tx_id', txId);
   form.append('uploader_pubkey', myPubKey);
   form.append('upload_proof_sig', uploadProofSig);
   form.append('release_policy', JSON.stringify(release_policy));
@@ -6257,9 +6587,11 @@ async function runPrivateSend({ file, gatewayUrl, recipients, hours, copies, pol
   try {
     upRes = await fetch(`${gatewayUrl}/upload`, { method: 'POST', body: form });
   } catch (e) {
-    throw new Error(`upload failed (${e.message}) — your ${payAmount} ${payCurrency} payment to ${escrowAccount} was already broadcast. tx: ${txId} · reservation: ${reservationId}. Ask the operator to check /admin/orphan-payments.`);
+    throw new Error(txId
+      ? `upload failed (${e.message}) — your ${payAmount} ${payCurrency} payment to ${escrowAccount} was already broadcast. tx: ${txId} · reservation: ${reservationId}. Ask the operator to check /admin/orphan-payments.`
+      : `upload failed (${e.message}) — nothing was paid (fee-exempt); just retry.`);
   }
-  if (!upRes.ok) { const j = await upRes.json().catch(() => ({})); throw new Error(`upload failed: ${j.message || upRes.status} — payment tx ${txId} may need operator review (orphan-payments).`); }
+  if (!upRes.ok) { const j = await upRes.json().catch(() => ({})); throw new Error(`upload failed: ${j.message || upRes.status}${txId ? ` — payment tx ${txId} may need operator review (orphan-payments).` : ' — nothing was paid (fee-exempt); just retry.'}`); }
   const upJson = await upRes.json();
   const cid = upJson.cid;
   const expires_at = upJson.expires_at || null;
@@ -6855,10 +7187,14 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
     // backwards compat with v0.1.2 gates that didn't include `currency` in the
     // reserve response. v0.1.3+ always returns it.
     const payCurrency = (reserve.payment.currency || 'CNOOBS').toUpperCase();
+    // Whitelist fee exemption: gate quoted 0, upload accepted with no tx_id.
+    const feeExempt = !!(reserve.quote && reserve.quote.fee_exempt);
     // Surface the computed quote before the Keychain pop (no-op on an old gate).
     if (reserve.quote) {
       const q = reserve.quote;
-      setAttachStatus(`Quote: ${q.total} ${q.currency} — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop${q.copies_capped ? ' (copies capped to node count)' : ''}.`);
+      setAttachStatus(feeExempt
+        ? `Free (fee-exempt) — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop.`
+        : `Quote: ${q.total} ${q.currency} — ${q.billable_mb} MB × ${q.billable_hrs} h × ${q.copies} cop${q.copies_capped ? ' (copies capped to node count)' : ''}.`);
     }
 
     // 3) Sign upload proof
@@ -6867,14 +7203,16 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
     const uploadProofSig = await signRaw(proofMsg);
     if (!uploadProofSig) throw new Error('upload proof signature cancelled');
 
-    // 4) Pay
-    setAttachStatus(`Paying ${payAmount} ${payCurrency} (Keychain)…`);
-    const txId = await keychainTransferGateToken({ to: escrowAccount, amount: payAmount, memo, symbol: payCurrency });
-    if (!txId) throw new Error('payment cancelled or failed');
+    // 4-5) Pay + settle delay (skipped entirely when fee-exempt)
+    let txId = null;
+    if (!feeExempt) {
+      setAttachStatus(`Paying ${payAmount} ${payCurrency} (Keychain)…`);
+      txId = await keychainTransferGateToken({ to: escrowAccount, amount: payAmount, memo, symbol: payCurrency });
+      if (!txId) throw new Error('payment cancelled or failed');
 
-    // 5) Brief settle delay so the tx is indexed before /upload checks
-    setAttachStatus('Waiting for tx to index (3s)…');
-    await new Promise(r => setTimeout(r, 3000));
+      setAttachStatus('Waiting for tx to index (3s)…');
+      await new Promise(r => setTimeout(r, 3000));
+    }
 
     // 6) Upload. v0.16.16 — if the fetch itself throws (network drop after the
     // CNOOBS transfer already broadcast), the payment is in escrow with no pin
@@ -6883,7 +7221,7 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
     setAttachStatus('Uploading ciphertext…');
     const form = new FormData();
     form.append('reservation_id', reservationId);
-    form.append('tx_id', txId);
+    if (txId) form.append('tx_id', txId);
     form.append('uploader_pubkey', myPubKey);
     form.append('upload_proof_sig', uploadProofSig);
     form.append('ciphertext', new Blob([blob], { type: 'application/octet-stream' }), 'ciphertext.bin');
@@ -6891,11 +7229,13 @@ async function sendAttachment({ file, gatewayUrl, recipientUsernames, mode, dmCo
     try {
       upRes = await fetch(`${gatewayUrl}/upload`, { method: 'POST', body: form });
     } catch (e) {
-      throw new Error(`upload failed (${e.message}) — your ${payAmount} ${payCurrency} payment to ${escrowAccount} was already broadcast. tx: ${txId} · reservation: ${reservationId}. Ask the operator to check /admin/orphan-payments for a manual refund.`);
+      throw new Error(txId
+        ? `upload failed (${e.message}) — your ${payAmount} ${payCurrency} payment to ${escrowAccount} was already broadcast. tx: ${txId} · reservation: ${reservationId}. Ask the operator to check /admin/orphan-payments for a manual refund.`
+        : `upload failed (${e.message}) — nothing was paid (fee-exempt); just retry.`);
     }
     if (!upRes.ok) {
       const j = await upRes.json().catch(() => ({}));
-      throw new Error(`upload failed: ${j.message || upRes.status} — payment tx ${txId} may need operator review (orphan-payments).`);
+      throw new Error(`upload failed: ${j.message || upRes.status}${txId ? ` — payment tx ${txId} may need operator review (orphan-payments).` : ' — nothing was paid (fee-exempt); just retry.'}`);
     }
     const upJson = await upRes.json();
     cid = upJson.cid;
