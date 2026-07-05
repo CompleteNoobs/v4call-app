@@ -4594,7 +4594,12 @@ function decryptMsg(ciphertext) {
 // .env had no effect on v4call's client — the old 10 MB const was the
 // real limit. Caught 2026-06-03 after gate-side bump to 25 MB failed to
 // take effect in the picker.
+// gateCapKnown: whether attachMaxBytes actually came from the gate. Until it
+// did, the 10MB boot value is a GUESS — the send-time checks re-fetch the
+// gate's info rather than enforce it (2026-07-05: operator raised the gate to
+// 1000 MB but a stale/raced client kept rejecting at "gate cap is 10 MB").
 let attachMaxBytes = 10 * 1024 * 1024;
+let gateCapKnown = false;
 // §1 claim-model cutover — the gate's /reserve was cut over from a flat per-upload
 // fee to a computed MB-hour quote (size × hours × copies). The existing room/DM +
 // public upload flows MUST now send hours_requested/copies, or the gate silently
@@ -4917,6 +4922,7 @@ function getStorageBackend() {
 }
 
 function setStorageBackend(cfg) {
+  gateCapKnown = false; // a different backend/gate → its cap must be re-learned
   try {
     if (cfg.type === 'pinata') {
       pinataSessionJwt = cfg.jwt || '';
@@ -5451,6 +5457,7 @@ async function refreshAttachCostLine(gatewayUrl, lineId) {
     const maxMb = Number(p.max_size_mb ?? j.max_size_mb);
     if (Number.isFinite(maxMb) && maxMb > 0) {
       attachMaxBytes = Math.floor(maxMb * 1024 * 1024);
+      gateCapKnown = true;
     }
     const sizeStr = Number.isFinite(maxMb) && maxMb > 0 ? `, ≤ ${maxMb} MB` : '';
 
@@ -5481,6 +5488,28 @@ async function refreshAttachCostLine(gatewayUrl, lineId) {
     line.textContent = `⚠ could not reach ${gatewayUrl}`;
     paintPricingModels('⚠ could not load pricing — check the gateway in ⚙ Change.');
   }
+}
+
+// Called right before enforcing attachMaxBytes: if the selected gate never
+// confirmed its cap (fetch failed/raced), ask it directly NOW. Returns true
+// only when attachMaxBytes is the gate's real value — callers refuse to
+// enforce the 10MB boot guess as if the gate said it.
+async function ensureGateCap() {
+  if (gateCapKnown) return true;
+  const b = getStorageBackend();
+  if (b.type !== 'ipfs-gate' || !/^https?:\/\//.test(b.url || '')) return false;
+  try {
+    const r = await fetch(`${b.url}/`);
+    if (r.ok) {
+      const j = await r.json();
+      const maxMb = Number((j.payment || {}).max_size_mb ?? j.max_size_mb);
+      if (Number.isFinite(maxMb) && maxMb > 0) {
+        attachMaxBytes = Math.floor(maxMb * 1024 * 1024);
+        gateCapKnown = true;
+      }
+    }
+  } catch (_) {}
+  return gateCapKnown;
 }
 
 // The gate's full pricing model + a worked example, shown in every upload modal
@@ -6043,8 +6072,9 @@ function onPubFilePick() {
   hostedCid = null;
   if (!f) { meta.textContent = ''; refreshPubEstimate(); return; }
   const mime = detectFileMime(f) || 'application/octet-stream';
-  const warn = (getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes) ? ` ⚠ over gate cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB)` : '';
+  const warn = (gateCapKnown && getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes) ? ` ⚠ over gate cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB)` : '';
   meta.textContent = `${f.name} · ${bytesToHuman(f.size)} · ${mime}${warn}`;
+  if (!gateCapKnown) ensureGateCap().then(ok => { if (ok) onPubFilePick(); });
   refreshPubEstimate();
 }
 // Concrete pre-pay estimate for the picked file at the chosen hours/copies —
@@ -6089,7 +6119,8 @@ async function confirmPublicUpload(skipHostedCheck) {
   if (backend.type === 'pinata' && !backend.jwt) { setPubStatus('No Pinata key set — click ⚙ Change to add it.', true); return; }
   if (backend.type === 'ipfs-gate' && !/^https?:\/\//.test(backend.url || '')) { setPubStatus('Enter a valid gateway URL (⚙ Change).', true); return; }
   // The gate cap only applies to ipfs-gate; Pinata's limit is the user's plan.
-  if (backend.type === 'ipfs-gate' && file.size > attachMaxBytes) { setPubStatus(`File too big — gate cap is ${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB.`, true); return; }
+  if (backend.type === 'ipfs-gate' && !(await ensureGateCap())) { setPubStatus(`⚠ Can't read the gate's upload limit — ${backend.url} isn't answering. Check the gateway URL (⚙ Change), then retry.`, true); return; }
+  if (backend.type === 'ipfs-gate' && file.size > attachMaxBytes) { setPubStatus(`File too big — this gate caps uploads at ${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB.`, true); return; }
   const btn = document.getElementById('pub-upload-btn');
   btn.disabled = true;
   try {
@@ -6428,9 +6459,10 @@ function onPrivFilePick() {
   if (privSendState) privSendState.file = f || null;
   const meta = document.getElementById('priv-file-meta');
   if (!f) { meta.textContent = ''; refreshPrivEstimate(); return; }
-  const overCap = (getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes)
+  const overCap = (gateCapKnown && getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes)
     ? ` ⚠ over gate cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB)` : '';
   meta.textContent = `${f.name} · ${bytesToHuman(f.size)} · ${detectFileMime(f) || 'application/octet-stream'}${overCap}`;
+  if (!gateCapKnown) ensureGateCap().then(ok => { if (ok) onPrivFilePick(); });
   refreshPrivEstimate();
 }
 function privAddRecipient() {
@@ -6496,7 +6528,8 @@ async function confirmPrivateSend() {
   if (!/^https?:\/\//.test(backend.url || '')) { setPrivStatus('⚠ Gateway URL invalid — set it in ⚙ Change.', true); return; }
   if (!myPrivKeyStr) { setPrivStatus('⚠ Unlock encryption first (🔑 key panel).', true); return; }
   const file = privSendState.file;
-  if (file.size > attachMaxBytes) { setPrivStatus(`⚠ ${(file.size / 1024 / 1024).toFixed(2)} MB — exceeds gate cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB).`, true); return; }
+  if (!(await ensureGateCap())) { setPrivStatus(`⚠ Can't read the gate's upload limit — ${backend.url} isn't answering. Check the gateway URL (⚙ Change), then retry.`, true); return; }
+  if (file.size > attachMaxBytes) { setPrivStatus(`⚠ ${(file.size / 1024 / 1024).toFixed(2)} MB — exceeds this gate's cap (${(attachMaxBytes / 1024 / 1024).toFixed(0)} MB).`, true); return; }
   const hours  = Math.max(1, parseInt(document.getElementById('priv-hours').value) || gateDefaultHours);
   const copies = Math.max(1, Math.min(gateCopiesMax, parseInt(document.getElementById('priv-copies').value) || 1));
   const policyType = (document.querySelector('input[name=priv-policy]:checked') || {}).value || 'owner_only';
@@ -7023,12 +7056,13 @@ document.addEventListener('change', (e) => {
       meta.style.color = 'var(--danger)';
       return;
     }
-    if (getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes) {
+    if (gateCapKnown && getStorageBackend().type === 'ipfs-gate' && f.size > attachMaxBytes) {
       const capMb = (attachMaxBytes / 1024 / 1024).toFixed(0);
       meta.textContent = `⚠ ${(f.size / 1024 / 1024).toFixed(2)} MB — exceeds gate cap (${capMb} MB).`;
       meta.style.color = 'var(--danger)';
       return;
     }
+    if (!gateCapKnown) ensureGateCap(); // learn the real cap for the send-time check
     meta.textContent = `${f.name} — ${(f.size / 1024).toFixed(1)} KB`; meta.style.color = 'var(--subtext)';
     if (attachState) attachState.file = f;
     refreshAttachEstimate();
@@ -7061,9 +7095,13 @@ async function confirmSendAttachment() {
   if (!isMimeAllowed(detectFileMime(file))) { setAttachStatus(`⚠ ${detectFileMime(file) || 'unknown type'} not accepted. v0.2 supports: ${ATTACH_ALLOWED_MIMES.join(', ')}.`, true); return; }
   const backend = getStorageBackend();
   // The gate cap only applies to ipfs-gate; Pinata's limit is the user's plan.
+  if (backend.type === 'ipfs-gate' && !(await ensureGateCap())) {
+    setAttachStatus(`⚠ Can't read the gate's upload limit — ${backend.url} isn't answering. Check the gateway URL (⚙ Change), then retry.`, true);
+    return;
+  }
   if (backend.type === 'ipfs-gate' && file.size > attachMaxBytes) {
     const capMb = (attachMaxBytes / 1024 / 1024).toFixed(0);
-    setAttachStatus(`⚠ ${(file.size / 1024 / 1024).toFixed(2)} MB — exceeds gate cap (${capMb} MB).`, true);
+    setAttachStatus(`⚠ ${(file.size / 1024 / 1024).toFixed(2)} MB — exceeds this gate's cap (${capMb} MB).`, true);
     return;
   }
   if (backend.type === 'pinata' && !backend.jwt) { setAttachStatus('⚠ No Pinata key set — click ⚙ Change to add it.', true); return; }
