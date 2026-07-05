@@ -1419,7 +1419,7 @@
     <div id="storage-gate-cfg" style="margin-top:12px;">
       <div style="font-size:0.68rem;color:var(--subtext);margin-bottom:5px;">GATE URL</div>
       <select id="storage-gate-select" onchange="onStorageGateSelect()" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:0.78rem;">
-        <option value="https://ipfs.completenoobs.com">ipfs.completenoobs.com (default)</option>
+        <option value="https://ipfs.v4call.com">ipfs.v4call.com (default)</option>
         <option value="__custom__">Custom…</option>
       </select>
       <input id="storage-gate-custom" type="url" placeholder="https://your-ipfs-gate.example" style="display:none;margin-top:5px;width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:0.78rem;" autocomplete="off" spellcheck="false"/>
@@ -4869,8 +4869,8 @@ async function keychainTransferGateToken({ to, amount, memo, symbol }) {
 }
 
 function getRememberedGateway() {
-  try { return localStorage.getItem('v4call:ipfs-gate') || 'https://ipfs.completenoobs.com'; }
-  catch (_) { return 'https://ipfs.completenoobs.com'; }
+  try { return localStorage.getItem('v4call:ipfs-gate') || 'https://ipfs.v4call.com'; }
+  catch (_) { return 'https://ipfs.v4call.com'; }
 }
 function rememberGateway(url) {
   try { localStorage.setItem('v4call:ipfs-gate', url); } catch (_) {}
