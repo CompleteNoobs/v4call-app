@@ -2523,7 +2523,11 @@ async function openDmPanel(username) {
     dmPanelRate      = 0;
     dmPanelCurrency  = 'HBD';
     dmPanelPrecision = 3;
-    if (rateResp.belowFloor) {
+    if (rateResp.escrowMismatch) {
+      rateEl.textContent  = `⚠ escrow mismatch — sending free`;
+      rateEl.className    = 'free';
+      rateEl.title        = rateResp.message || `@${username}'s user-announce points at a different escrow than this node uses — the fee can't be collected until they update it.`;
+    } else if (rateResp.belowFloor) {
       rateEl.textContent  = `⚠ rate below the minimum unit — sending free`;
       rateEl.className    = 'free';
       rateEl.title        = `@${username}'s rate post sets a rate below this currency's smallest processable unit. The message will be sent free until they raise the rate.`;
@@ -3499,11 +3503,13 @@ async function initiateCall(callee, callType = 'voice') {
       return;
     }
     if (!response.found || response.free) {
-      const msg = !response.found
-        ? `@${callee} has no call rates set — calling for free…`
-        : response.belowFloor
-          ? `⚠ @${callee}'s call rates are below the currency's smallest processable unit — calling for free.`
-          : `@${callee}'s rates show free for this time window — calling…`;
+      const msg = response.escrowMismatch
+        ? `⚠ ${response.message || `@${callee}'s user-announce points at a different escrow than this node uses — calling for free.`}`
+        : !response.found
+          ? `@${callee} has no call rates set — calling for free…`
+          : response.belowFloor
+            ? `⚠ @${callee}'s call rates are below the currency's smallest processable unit — calling for free.`
+            : `@${callee}'s rates show free for this time window — calling…`;
       addLobbyMsg({type:'system',text:msg});
       proceedWithCall(callee, callType, null);
       return;
