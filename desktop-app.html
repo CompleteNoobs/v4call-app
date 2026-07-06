@@ -3500,13 +3500,23 @@ socket.on('expert-offer-cancelled', ({ room, reason }) => {
   showInviteMsg(`💎 The paid expert offer for #${room} was cancelled (${String(reason || '').replace(/_/g,' ')}).`);
 });
 
-// Both sides — the metered session started; start the live ticker.
+// Both sides — the metered session started (or reconnected); start the live ticker.
 socket.on('expert-session-started', (s) => {
   const amExpert = s.perspective === 'expert';
   startExpertTicker(s, amExpert);
   addSystemMsg(amExpert
     ? `💎 You're now a paid expert here — earning connect ${dfmt(s.connectFee, s.currency)} + ${dfmt(s.ratePerHour, s.currency)}/hr ${s.currency} (before platform fee).`
     : `💎 @${s.expert} joined as a paid expert — connect ${dfmt(s.connectFee, s.currency)} + ${dfmt(s.ratePerHour, s.currency)}/hr ${s.currency}.`);
+});
+
+// A3 — the session hit its max-duration cap; the meter froze at the cap. The
+// settlement receipt (call-receipt) follows and stops the ticker; this is the
+// heads-up so the number stops climbing immediately.
+socket.on('expert-session-capped', ({ expert, perspective }) => {
+  stopExpertTicker();
+  addSystemMsg(perspective === 'expert'
+    ? `⏰ 💎 Your paid session reached its max-duration cap — the meter stopped. You can stay in the room for free.`
+    : `⏰ 💎 @${expert}'s paid session reached its max-duration cap — the meter stopped.`);
 });
 
 function startExpertTicker(s, amExpert) {
