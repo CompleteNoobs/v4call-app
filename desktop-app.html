@@ -652,6 +652,24 @@
     .ue-admin-btns button:hover{color:var(--text);border-color:var(--accent);}
     .ue-spotlight-btn.active{color:var(--accent);border-color:var(--accent);background:rgba(245,166,35,0.12);}
     .ue-makeadmin-btn:hover{color:#ffd166;border-color:#ffd166;}
+    /* v0.17 paid expert invites — 💎 badge + offer builder + live session ticker */
+    .expert-badge{font-size:0.58rem;color:#7ee0d6;background:rgba(126,224,214,0.12);border:1px solid rgba(126,224,214,0.35);border-radius:4px;padding:0 4px;margin-left:4px;letter-spacing:0.03em;}
+    #expert-offer-btn{background:none;border:1px solid var(--border);color:var(--subtext);border-radius:4px;cursor:pointer;font-size:0.82rem;line-height:1;padding:2px 6px;}
+    #expert-offer-btn:hover{border-color:#7ee0d6;color:#7ee0d6;}
+    .xo-picker{max-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:3px;border:1px solid var(--border);border-radius:6px;padding:5px;background:var(--bg);}
+    .xo-cand{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:5px;cursor:pointer;font-size:0.76rem;color:var(--text);}
+    .xo-cand:hover{background:var(--surface2);}
+    .xo-cand.sel{background:rgba(126,224,214,0.14);border:1px solid rgba(126,224,214,0.4);}
+    .xo-cand .online-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;}
+    .xo-field{display:flex;flex-direction:column;gap:3px;}
+    .xo-field label{font-size:0.64rem;color:var(--subtext);letter-spacing:0.04em;}
+    .xo-field input{padding:5px 7px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:0.76rem;outline:none;}
+    .xo-field input:focus{border-color:#7ee0d6;}
+    .xo-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+    #expert-session-ticker{display:none;background:var(--surface);border-top:1px solid rgba(126,224,214,0.35);padding:7px 14px;flex-shrink:0;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:#7ee0d6;align-items:center;gap:14px;flex-wrap:wrap;}
+    #expert-session-ticker.active{display:flex;}
+    #expert-session-ticker .xt-label{font-size:0.58rem;color:var(--muted);letter-spacing:0.05em;}
+    #expert-session-ticker .xt-value{font-weight:600;}
     /* v0.15 Follow Spotlight button — shown only when local pin differs from
        the admin-broadcast spotlight target. Pattern follows enable-mic-btn etc. */
     #follow-spotlight-btn{display:none;padding:5px 11px;background:transparent;border-radius:6px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:0.68rem;font-weight:600;letter-spacing:0.03em;color:var(--accent);border:1px solid rgba(245,166,35,0.4);transition:background 0.15s;}
@@ -1258,6 +1276,45 @@
   </div>
 </div>
 
+<!-- v0.17 — PAID EXPERT OFFER BUILDER (admin) -->
+<div id="expert-offer-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
+  <div class="payment-box" style="border-color:#7ee0d6;width:360px;">
+    <h3 style="color:#7ee0d6;">💎 Invite a Paid Expert</h3>
+    <p style="font-size:0.76rem;color:var(--subtext);line-height:1.55;">You pay the expert for their time in this room. The full cap is escrowed up front; when they leave you're refunded the unused part. The offer <em>is</em> the contract — their normal rates don't apply.</p>
+    <div class="xo-field">
+      <label>EXPERT (online users not already in #<span id="xo-room-name"></span>)</label>
+      <div class="xo-picker" id="xo-picker"></div>
+    </div>
+    <div class="xo-grid">
+      <div class="xo-field"><label>CONNECT FEE (one-off)</label><input id="xo-connect" type="number" min="0" step="0.001" value="0" oninput="renderExpertCap()"/></div>
+      <div class="xo-field"><label>RATE / HOUR</label><input id="xo-rate" type="number" min="0" step="0.001" value="1" oninput="renderExpertCap()"/></div>
+      <div class="xo-field"><label>CURRENCY</label><input id="xo-currency" type="text" value="HBD" maxlength="12" oninput="renderExpertCap()"/></div>
+      <div class="xo-field"><label>MAX DURATION (min)</label><input id="xo-maxmin" type="number" min="1" step="1" value="30" oninput="renderExpertCap()"/></div>
+    </div>
+    <div class="payment-total"><span class="label">Escrow cap — one payment</span><span class="amount" id="xo-cap" style="color:#7ee0d6;">—</span></div>
+    <div class="payment-note">connect + (max duration × rate). Refund of the unused portion returns to you when the session ends.</div>
+    <div class="keychain-required">⚡ Requires Hive Keychain</div>
+    <div class="payment-btn-row">
+      <button id="xo-send-btn" style="background:#7ee0d6;color:#0a0c0f;" onclick="fundExpertOffer()">Fund &amp; Send Offer →</button>
+      <button style="background:var(--surface2);color:var(--subtext);border:1px solid var(--border)!important;" onclick="closeExpertOfferModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- v0.17 — PAID EXPERT ACCEPT-TERMS (expert) -->
+<div id="expert-accept-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
+  <div class="payment-box" style="border-color:#7ee0d6;width:340px;">
+    <h3 style="color:#7ee0d6;">💎 Paid Expert Offer</h3>
+    <p id="xa-desc" style="font-size:0.8rem;color:var(--text);line-height:1.6;"></p>
+    <div class="payment-total"><span class="label">You earn (before platform fee)</span><span class="amount" id="xa-terms" style="color:#7ee0d6;font-size:0.82rem;">—</span></div>
+    <div class="payment-note">Accepting joins you to the room as a paid expert. You're paid for the time you stay — connect fee + elapsed × rate, capped at the max duration. Your normal rates don't apply to this session.</div>
+    <div class="payment-btn-row">
+      <button id="xa-accept-btn" style="background:#7ee0d6;color:#0a0c0f;" onclick="respondExpertOffer('accept')">✓ Accept &amp; Join</button>
+      <button style="background:var(--surface2);color:var(--subtext);border:1px solid var(--border)!important;" onclick="respondExpertOffer('decline')">✗ Decline</button>
+    </div>
+  </div>
+</div>
+
 <!-- ATTACHMENT UPLOAD MODAL (ipfs-gate v0.1) -->
 <div id="attachment-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
   <div class="payment-box" style="border-color:var(--accent);max-width:440px;">
@@ -1590,6 +1647,7 @@
       <h3>Participants</h3>
       <div class="up-head-btns">
         <button id="select-all-btn" onclick="toggleSelectAll()">all</button>
+        <button id="expert-offer-btn" onclick="openExpertOfferModal()" title="Invite a paid expert into this room (you pay them for their time)" style="display:none;">💎</button>
         <button id="manage-toggle-btn" onclick="toggleRoomManage()" title="Show / hide room management (allowlist · ban · admin)">⚙</button>
         <button class="panel-focus" id="participants-focus" onclick="setZoneFocus('participants')" title="Make Participants the centre panel">⤢</button>
         <button class="panel-chevron" id="participants-chevron" onclick="toggleParticipants()" title="Collapse / expand participants">^</button>
@@ -1663,6 +1721,13 @@
         <div class="ticker-item"><div class="ticker-label">RUNNING COST</div><div class="ticker-value" id="ticker-running">—</div></div>
         <div class="ticker-item"><div class="ticker-label">TOTAL SO FAR</div><div class="ticker-value" id="ticker-total">—</div></div>
         <button id="end-call-btn" onclick="endCall()">📵 End Call</button>
+      </div>
+      <div id="expert-session-ticker">
+        <span>💎 <span id="xt-role">Paid expert session</span></span>
+        <div><div class="xt-label" id="xt-with-label">EXPERT</div><div class="xt-value" id="xt-with">—</div></div>
+        <div><div class="xt-label">ELAPSED</div><div class="xt-value" id="xt-elapsed">00:00</div></div>
+        <div><div class="xt-label" id="xt-amount-label">RUNNING</div><div class="xt-value" id="xt-amount">—</div></div>
+        <div><div class="xt-label">CAP</div><div class="xt-value" id="xt-cap">—</div></div>
       </div>
       <div id="room-ephemeral-warning">⚠ Room is ephemeral — if all users leave, the room and its history are deleted. New members can only read messages encrypted to their key.</div>
       <div id="messages">
@@ -1963,6 +2028,7 @@ let currentRoomAllowlist = [];   // v0.16.15 — canonical entries from room-inf
 let currentScreenStream = null;  // v0.15 — getDisplayMedia stream while sharing (null when not)
 const peers = {}, roomUsers = {}, selectedRecipients = new Set();
 let amCreator = false;
+let roomCreatorName = '';   // v0.17 — current room's admin (for the paid-expert ticker label)
 // v0.15 — admin-broadcast spotlight target (username) and per-client local pin override.
 // localSpotlightOverride flips true when the user manually clicks a tile, so subsequent
 // admin broadcasts don't yank their view (soft override). Reset on Follow Spotlight.
@@ -3307,6 +3373,176 @@ document.getElementById('invite-pay-confirm-btn').addEventListener('click', asyn
   _ipPending = null;
 });
 
+// ── v0.17 Paid Expert Offers (client) ───────────────────────────────────────
+// Admin side: pick an online user not in the room, set terms, escrow the cap via
+// Keychain, send the offer. Expert side: accept-terms modal → join as 💎 expert.
+// Both sides get a live session ticker (spend / earnings). Local-only in Part A.
+let _xoSelected = null;   // chosen expert username in the builder
+let _xoPending  = null;   // { offerId, from, room, connectFee, ratePerHour, currency, maxDurationMin, cap } on the expert side
+let _xoTicker   = null;   // { interval, ... } for the live session ticker
+
+function openExpertOfferModal() {
+  if (!currentRoom || !amCreator) return;
+  _xoSelected = null;
+  document.getElementById('xo-room-name').textContent = currentRoom;
+  renderExpertPicker();
+  renderExpertCap();
+  document.getElementById('expert-offer-modal').style.display = 'flex';
+}
+function closeExpertOfferModal() {
+  document.getElementById('expert-offer-modal').style.display = 'none';
+  _xoSelected = null;
+}
+function renderExpertPicker() {
+  const wrap = document.getElementById('xo-picker');
+  wrap.innerHTML = '';
+  const inRoom = new Set(Object.values(roomUsers).map(u => u.username));
+  // Local online users only (federated paid offers arrive with v0.5 — Part B).
+  const cands = Object.keys(window.lobbyUsers || {}).filter(u =>
+    u !== myUsername && !inRoom.has(u) &&
+    (!userServers[u] || userServers[u] === MY_SERVER_DOMAIN));
+  if (!cands.length) {
+    wrap.innerHTML = '<div style="font-size:0.72rem;color:var(--muted);padding:5px;">No eligible online users. They must be online on this server and not already in the room.</div>';
+    return;
+  }
+  cands.forEach(u => {
+    const el = document.createElement('div');
+    el.className = 'xo-cand' + (u === _xoSelected ? ' sel' : '');
+    el.innerHTML = `<div class="online-dot"></div><span>@${escapeHtml(u)}</span>`;
+    el.onclick = () => { _xoSelected = u; renderExpertPicker(); };
+    wrap.appendChild(el);
+  });
+}
+function renderExpertCap() {
+  const connect = parseFloat(document.getElementById('xo-connect').value) || 0;
+  const rate    = parseFloat(document.getElementById('xo-rate').value) || 0;
+  const mins    = parseInt(document.getElementById('xo-maxmin').value, 10) || 0;
+  const cur     = (document.getElementById('xo-currency').value || 'HBD').toUpperCase();
+  const prec    = (cur === 'HBD' || cur === 'HIVE') ? 3 : 8;
+  const cap     = connect + rate * (mins / 60);
+  document.getElementById('xo-cap').textContent = `${dfmt(cap, cur)} ${cur}`;
+}
+
+async function fundExpertOffer() {
+  if (!currentRoom || !amCreator) return;
+  if (!_xoSelected) { showInviteMsg('⚠ Pick an expert to invite first.'); return; }
+  const expert  = _xoSelected;
+  const connect = parseFloat(document.getElementById('xo-connect').value) || 0;
+  const rate    = parseFloat(document.getElementById('xo-rate').value) || 0;
+  const mins    = parseInt(document.getElementById('xo-maxmin').value, 10) || 0;
+  const cur     = (document.getElementById('xo-currency').value || 'HBD').toUpperCase();
+  const btn     = document.getElementById('xo-send-btn');
+  if (!window.hive_keychain) { showInviteMsg('⚠ Hive Keychain is required to fund a paid expert offer.'); return; }
+
+  btn.disabled = true; btn.textContent = 'Validating…';
+  // Step 1 — server validates the terms + quotes {offerId, escrow, cap, memo}.
+  const quote = await new Promise(res => socket.emit('expert-offer-create',
+    { room: currentRoom, expert, connectFee: connect, ratePerHour: rate, currency: cur, maxDurationMin: mins },
+    r => res(r)));
+  if (!quote || !quote.ok) { btn.disabled = false; btn.textContent = 'Fund & Send Offer →'; showInviteMsg(`⚠ ${quote?.reason || 'Could not create offer.'}`); return; }
+
+  // Step 2 — escrow the cap via Keychain (transfer to the server escrow, memo binds the offer).
+  const prec   = (cur === 'HBD' || cur === 'HIVE') ? 3 : 8;
+  const amtStr = qfmt(quote.cap, prec);
+  btn.textContent = 'Opening Keychain…';
+  const isToken = (cur !== 'HBD' && cur !== 'HIVE');
+  let kc;
+  if (isToken) {
+    const json = JSON.stringify({ contractName: 'tokens', contractAction: 'transfer',
+      contractPayload: { symbol: cur, to: quote.escrow, quantity: amtStr, memo: quote.memo } });
+    kc = await new Promise(res => window.hive_keychain.requestCustomJson(myUsername, 'ssc-mainnet-hive', 'Active', json, `Escrow ${amtStr} ${cur} paid-expert cap`, r => res(r)));
+  } else {
+    kc = await new Promise(res => window.hive_keychain.requestTransfer(myUsername, quote.escrow, amtStr, quote.memo, cur, r => res(r)));
+  }
+  btn.disabled = false; btn.textContent = 'Fund & Send Offer →';
+  if (!kc || !kc.success) { showInviteMsg('Payment cancelled — offer not sent.'); return; }
+  const txId = keychainTxId(kc);
+
+  // Step 3 — server verifies the cap on-chain, then delivers the offer to the expert.
+  closeExpertOfferModal();
+  const res = await new Promise(r => socket.emit('expert-offer-fund', { offerId: quote.offerId, txId }, x => r(x)));
+  if (!res || !res.ok) { showInviteMsg(`⚠ ${res?.reason || 'Offer could not be delivered.'}`); return; }
+  showInviteMsg(`💎 Offer sent to @${expert} — cap ${amtStr} ${cur} escrowed. Waiting for them to accept.`);
+}
+
+// Expert side — accept-terms modal.
+socket.on('expert-offer-received', (o) => {
+  _xoPending = o;
+  const prec = (o.currency === 'HBD' || o.currency === 'HIVE') ? 3 : 8;
+  document.getElementById('xa-desc').innerHTML =
+    `<strong>@${escapeHtml(o.from)}</strong> invites you into <strong>#${escapeHtml(o.room)}</strong> as a paid expert.<br>` +
+    `Connect fee: <strong>${dfmt(o.connectFee, o.currency)} ${o.currency}</strong> · ` +
+    `Rate: <strong>${dfmt(o.ratePerHour, o.currency)} ${o.currency}/hr</strong> · ` +
+    `Max: <strong>${o.maxDurationMin} min</strong>.`;
+  document.getElementById('xa-terms').textContent = `up to ${dfmt(o.cap, o.currency)} ${o.currency}`;
+  document.getElementById('expert-accept-modal').style.display = 'flex';
+});
+
+function respondExpertOffer(response) {
+  if (!_xoPending) return;
+  socket.emit('expert-offer-respond', { offerId: _xoPending.offerId, response });
+  document.getElementById('expert-accept-modal').style.display = 'none';
+  if (response === 'decline') { showInviteMsg('You declined the paid expert offer.'); _xoPending = null; }
+  // On accept, wait for expert-offer-accepted to actually join the room.
+}
+
+socket.on('expert-offer-accepted', ({ room }) => {
+  // Server has us on the paid gate — join the room text-only; the join event
+  // starts the metered session server-side and fires expert-session-started.
+  _xoPending = null;
+  amCreator = false; pendingCallType = 'text';
+  enterRoom(room);
+});
+
+socket.on('expert-offer-cancelled', ({ room, reason }) => {
+  document.getElementById('expert-accept-modal').style.display = 'none';
+  _xoPending = null;
+  showInviteMsg(`💎 The paid expert offer for #${room} was cancelled (${String(reason || '').replace(/_/g,' ')}).`);
+});
+
+// Both sides — the metered session started; start the live ticker.
+socket.on('expert-session-started', (s) => {
+  const amExpert = s.perspective === 'expert';
+  startExpertTicker(s, amExpert);
+  addSystemMsg(amExpert
+    ? `💎 You're now a paid expert here — earning connect ${dfmt(s.connectFee, s.currency)} + ${dfmt(s.ratePerHour, s.currency)}/hr ${s.currency} (before platform fee).`
+    : `💎 @${s.expert} joined as a paid expert — connect ${dfmt(s.connectFee, s.currency)} + ${dfmt(s.ratePerHour, s.currency)}/hr ${s.currency}.`);
+});
+
+function startExpertTicker(s, amExpert) {
+  stopExpertTicker();
+  const cur  = s.currency || 'HBD';
+  const prec = (cur === 'HBD' || cur === 'HIVE') ? 3 : 8;
+  const fee  = (typeof s.platformFee === 'number') ? s.platformFee : 0.10;
+  const start = s.startTs || Date.now();
+  const el = document.getElementById('expert-session-ticker');
+  document.getElementById('xt-role').textContent = amExpert ? 'You are the paid expert' : `Paying @${s.expert}`;
+  document.getElementById('xt-with-label').textContent = amExpert ? 'FROM' : 'EXPERT';
+  document.getElementById('xt-with').textContent = '@' + (amExpert ? (roomCreatorName || 'admin') : s.expert);
+  document.getElementById('xt-amount-label').textContent = amExpert ? 'EARNING (net)' : 'SPENDING';
+  document.getElementById('xt-cap').textContent = dfmt(s.cap, cur) + ' ' + cur;
+  el.classList.add('active');
+  const tick = () => {
+    const elapsedMs  = Date.now() - start;
+    const elapsedMin = elapsedMs / 60000;
+    const capped     = Math.min(elapsedMin, s.maxDurationMin);
+    const gross      = s.connectFee + s.ratePerHour * (capped / 60);
+    const shown      = amExpert ? gross * (1 - fee) : gross;
+    const mm = String(Math.floor(elapsedMin)).padStart(2,'0');
+    const ss = String(Math.floor((elapsedMs % 60000) / 1000)).padStart(2,'0');
+    document.getElementById('xt-elapsed').textContent = `${mm}:${ss}`;
+    document.getElementById('xt-amount').textContent  = dfmt(shown, cur) + ' ' + cur;
+  };
+  tick();
+  _xoTicker = { interval: setInterval(tick, 1000) };
+}
+function stopExpertTicker() {
+  if (_xoTicker && _xoTicker.interval) clearInterval(_xoTicker.interval);
+  _xoTicker = null;
+  const el = document.getElementById('expert-session-ticker');
+  if (el) el.classList.remove('active');
+}
+
 // ── Room creation ───────────────────────────────────────
 let nameCheckTimer = null;
 function checkRoomName() {
@@ -4038,6 +4274,7 @@ function leaveRoom(opts) {
     try { rsock().emit('leave-room'); } catch(_) {}
   }
   stopCallTicker();
+  stopExpertTicker();   // v0.17 — clear the paid-expert session ticker on leave
   currentCallId = null; pendingRates = null;
   pendingCallType = 'voice'; // reset for next call
   // v0.15 — stop screen share if active so the browser's "Sharing" indicator
@@ -4204,6 +4441,7 @@ socket.on('peer-hung-up', ({ by }) => {
 
 socket.on('call-receipt', (receipt) => {
   stopCallTicker();
+  stopExpertTicker();   // v0.17 — an expert session settles via call-receipt too
   showReceipt(receipt);
 });
 
@@ -4341,6 +4579,8 @@ function addRoomUser(sid, username, pubKey, isSelf, joinedVia, homeServer) {
   const safeUser   = escapeHtml(username);
   const safeServer = escapeHtml(homeServer || '');
   const fedBadge = (homeServer && !isSelf) ? `<span class="fed-badge">@${safeServer}</span>` : '';
+  // v0.17 — 💎 badge for a paid expert (joinedVia:'paid'), including on your own row.
+  const expertBadge = (joinedVia === 'paid') ? `<span class="expert-badge">💎 expert</span>` : '';
   // Admin buttons — present on every non-self row, hidden via CSS unless the
   // parent #room-users-list has .am-creator. data-user lets updateFollowAffordance
   // flip the .active state on the spotlight btn.
@@ -4348,7 +4588,7 @@ function addRoomUser(sid, username, pubKey, isSelf, joinedVia, homeServer) {
       <button class="ue-spotlight-btn" data-user="${safeUser}" title="Spotlight @${safeUser} for everyone in the room">📌</button>
       <button class="ue-makeadmin-btn" data-user="${safeUser}" title="Hand admin to @${safeUser}">👑</button>
     </span>`;
-  el.innerHTML = `<div class="user-dot"></div><span>@${safeUser}</span>${fedBadge}${viaBadge}${adminBtns}<div class="user-toggle"></div>`;
+  el.innerHTML = `<div class="user-dot"></div><span>@${safeUser}</span>${fedBadge}${viaBadge}${expertBadge}${adminBtns}<div class="user-toggle"></div>`;
   if (!isSelf) {
     el.onclick = (ev) => {
       // Admin buttons must not also trigger the recipient-toggle behaviour.
@@ -4408,12 +4648,15 @@ socket.on('room-info', ({ creator, allowlist, tokenGate, banlist, banlistVisibil
   // amCreator can both flip on (we just got promoted) AND flip off (admin
   // was transferred away from us) so set it to the truth, don't only OR it.
   amCreator = (creator === myUsername) || (creator === `${myUsername}@${MY_SERVER_DOMAIN}`);
+  roomCreatorName = (creator || '').split('@')[0];   // v0.17 — for the expert ticker label
   // v0.16.15 — cache the room allowlist so the attachment picker can include
   // members who are allowlisted but not currently in the room socket.
   currentRoomAllowlist = Array.isArray(allowlist) ? allowlist.slice() : [];
   // Reveal admin-only buttons whenever amCreator is true (covers the case
   // where it gets discovered after enterRoom — e.g. on auto-create-on-join).
   document.getElementById('end-room-btn').classList.toggle('shown', amCreator);
+  // v0.17 — the 💎 paid-expert offer button is admin-only.
+  document.getElementById('expert-offer-btn').style.display = amCreator ? '' : 'none';
   // Toggle .am-creator on the user list so per-row admin buttons show/hide
   // via CSS without re-rendering each entry.
   document.getElementById('room-users-list').classList.toggle('am-creator', amCreator);
