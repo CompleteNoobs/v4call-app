@@ -195,7 +195,9 @@ Test a fresh connection before trusting it (a second terminal):
 
 == Step 6: Install Nginx + Certbot ==
 
- apk add nginx certbot
+ apk add nginx certbot curl
+
+A fresh Alpine cloud image ships '''no <code>curl</code>''' either — every verification command from Step 8 onward uses it, so install it here alongside nginx rather than hitting <code>curl: not found</code> partway through testing.
 
 Confirm and enable at boot (don't start yet — no site config exists):
 
@@ -243,7 +245,10 @@ server {
 
  mkdir -p /var/www/certbot
  rm -f /etc/nginx/http.d/default.conf   # ships with a placeholder server block; remove it
+ mkdir -p /run/nginx                    # doesn't exist yet on a never-started box — see note below
  nginx -t && rc-service nginx start
+
+'''Why the <code>mkdir -p /run/nginx</code>.''' On a box where nginx has never started, <code>nginx -t</code> alone fails with <code>[emerg] open() "/run/nginx/nginx.pid" failed (2: No such file or directory)</code> — that directory is normally created by the OpenRC init script on first start, so a config *test* run before any start can't find it. Creating it manually first makes <code>nginx -t</code> reliable even on a box that has never run nginx.
 
 Test HTTP works end-to-end:
 
@@ -456,3 +461,22 @@ Nothing to restart for a static site, but the '''browser''' may be caching aggre
 : node's <code>.env</code> → <code>CORS_ALLOWED_ORIGINS=https://v4call.com</code> (add <code>https://www.v4call.com</code> too if serving both) → restart the node.
 ;Source of truth
 : <code>v4call-node/walkthrough.wiki</code> Step 14 ("Connect the Client") + Step 7 (<code>CORS_ALLOWED_ORIGINS</code>) for the node-side half of this relationship · <code>handover-decoupling.md</code>.
+
+== Reproduction Notes (deploy test, 2026-07-07, web3vox.com) ==
+
+Reproduced on a second, independent domain (<code>web3vox.com</code>, fresh Vultr Alpine 3.23.2) to stand up a
+second solo v4call instance for federation testing against <code>v4call.com</code>. '''No blocking errors'''
+once two gaps below (now folded into the steps above) were worked around:
+
+* '''<code>curl: not found</code>''' — a fresh Alpine image ships neither <code>curl</code> nor <code>git</code>;
+  the walkthrough already installed <code>git</code> in Step 7 but not <code>curl</code>, and every verification
+  command from Step 8 onward uses it. Folded into Step 6's <code>apk add</code> line.
+* '''<code>nginx -t</code> fails on a box where nginx has never started''' — <code>[emerg] open()
+  "/run/nginx/nginx.pid" failed (2: No such file or directory)</code>. <code>/run/nginx</code> is normally created
+  by the OpenRC init script on first start, so testing the config before ever starting the service can't find
+  it. Fix: <code>mkdir -p /run/nginx</code> before the first <code>nginx -t</code>. Folded into Step 8.
+
+Kernel had been upgraded by <code>apk upgrade</code> (per the reboot-before-firewall gotcha already documented
+above) — rebooted before Step 4's firewall load, same as the escrow-box walkthrough describes. Everything else
+reproduced exactly as written: firewall, SSH hardening, deploy user, clone, HTTP→cert→HTTPS, all 11 pages +
+<code>vendor/</code> + screenshots 200, valid cert.
