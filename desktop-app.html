@@ -3909,9 +3909,12 @@ async function initiateCall(callee, callType = 'voice') {
       addLobbyMsg({type:'system',text:`⚠ ${response.message}`});
       return;
     }
-    if (!response.found || response.free) {
+    // escrowMismatch responses are found:true with NO options — without the
+    // options-length check they fell through to the paid branch and crashed on
+    // defaultRates.currency, stranding the UI at "Checking rates…".
+    if (!response.found || response.free || response.escrowMismatch || !(response.options || [response.rates]).filter(Boolean).length) {
       const msg = response.escrowMismatch
-        ? `⚠ ${response.message || `@${callee}'s user-announce points at a different escrow than this node uses — calling for free.`}`
+        ? `⚠ ${response.message || `@${callee}'s user-announce points at a different escrow than their node uses — calling for free.`}`
         : !response.found
           ? `@${callee} has no call rates set — calling for free…`
           : response.belowFloor
