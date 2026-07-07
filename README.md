@@ -18,5 +18,17 @@ chosen **v4call-node** via `nodeBase()`; can be hosted as a web app or packaged 
 - **`walkthrough.wiki`** — deploy guide for hosting this repo as a static site on Alpine Linux, including the
   CORS setup needed when the client and its node are on different domains (the normal case).
 
-> Status: scaffold. Client extracted during the decoupling build (see the hand-off doc, build sequence §11).
-> First step is the behaviour-neutral `nodeBase()` hygiene on the monolith's `app.html` (hand-off doc §B).
+> Status: **production** — hosted static at `v4call.com`, talking to `node.v4call.com`.
+
+## What's built beyond the monolith carve
+
+- **v0.17 Part A — paid expert invites (desktop client, shipped + live-proven 2026-07-07).** Admin-only 💎
+  button in the room Participants header → offer-builder modal (online-user picker, connect fee + rate/hr +
+  currency + max duration, live escrow-cap total, Keychain funding). The expert gets an accept-terms modal
+  with the exact contract; accepting joins them text-only with a 💎 badge. Both sides get a live session
+  ticker (admin = spend, expert = earnings net of platform fee) that freezes the moment the session ends
+  ("settling…") and clears on the final receipt.
+- **Honest money receipts.** Call receipts show the full breakdown (connect / metered deposit / duration cost /
+  refund / platform fee / net), and a loud "⚠ funds still held in escrow" banner whenever a settlement comes
+  back pending/failed — plus a follow-up "✓ settlement completed" notice when the escrow box's recovery retry
+  lands the payouts.
