@@ -3513,10 +3513,20 @@ socket.on('expert-session-started', (s) => {
 // settlement receipt (call-receipt) follows and stops the ticker; this is the
 // heads-up so the number stops climbing immediately.
 socket.on('expert-session-capped', ({ expert, perspective }) => {
-  stopExpertTicker();
+  freezeExpertTicker();
   addSystemMsg(perspective === 'expert'
     ? `⏰ 💎 Your paid session reached its max-duration cap — the meter stopped. You can stay in the room for free.`
     : `⏰ 💎 @${expert}'s paid session reached its max-duration cap — the meter stopped.`);
+});
+
+// The paid session is ending (expert left / kicked / room ended / disconnect).
+// Settlement is async via the escrow box, so freeze the ticker NOW — the final
+// receipt (call-receipt) arrives when the box responds and stops it fully.
+socket.on('expert-session-ending', ({ expert, reason, perspective }) => {
+  freezeExpertTicker();
+  addSystemMsg(perspective === 'expert'
+    ? `💎 Your paid session ended (${String(reason||'').replace(/_/g,' ')}) — settling your earnings…`
+    : `💎 @${expert}'s paid session ended (${String(reason||'').replace(/_/g,' ')}) — settling…`);
 });
 
 function startExpertTicker(s, amExpert) {
@@ -3551,6 +3561,14 @@ function stopExpertTicker() {
   _xoTicker = null;
   const el = document.getElementById('expert-session-ticker');
   if (el) el.classList.remove('active');
+}
+// Freeze the running number where it is (session ended, settlement in flight) but
+// keep the banner visible so the amount stops climbing. stopExpertTicker (on the
+// final receipt / leaveRoom) hides it fully.
+function freezeExpertTicker() {
+  if (_xoTicker && _xoTicker.interval) { clearInterval(_xoTicker.interval); _xoTicker.interval = null; }
+  const lbl = document.getElementById('xt-amount-label');
+  if (lbl) lbl.textContent = (lbl.textContent || '').replace(/ \(settling…\)$/,'') + ' (settling…)';
 }
 
 // ── Room creation ───────────────────────────────────────
@@ -4500,9 +4518,18 @@ function showReceipt(r) {
     ? fmt(Math.max(0, (r.ringPaid||0) + (r.connectPaid||0) + (r.depositPaid||0) - (r.refundAmount||0)))
     : fmt(r.calleeNet || 0);
   const totalAmount = netCost;
+  // v0.17 — a box settlement that couldn't disburse (network/key problem) comes back
+  // status:'failed'|'pending'. The amounts below are what WAS owed; nothing actually
+  // moved. Say so loudly instead of showing a clean receipt that implies payment.
+  const heldBanner = r.settleFailed
+    ? `<div class="receipt-row" style="background:rgba(224,90,90,0.12);border:1px solid var(--danger);border-radius:6px;padding:7px 9px;">
+         <span class="rl" style="color:var(--danger);line-height:1.4;">⚠ Settlement ${r.status === 'pending' ? 'pending' : 'did NOT complete'} — funds are still held in escrow${r.settleReason ? ' ('+escapeHtml(r.settleReason)+')' : ''}. The amounts below are what's owed, not what moved. The operator has been notified.</span>
+       </div>`
+    : '';
   document.getElementById('receipt-content').innerHTML =
+    heldBanner +
     rows.map(([l,v]) => `<div class="receipt-row"><span class="rl">${l}</span><span class="rv">${v}</span></div>`).join('') +
-    `<div class="receipt-total"><span class="rl">${totalLabel}</span><span class="rv">${totalAmount}</span></div>`;
+    `<div class="receipt-total"><span class="rl">${r.settleFailed ? totalLabel + ' (owed)' : totalLabel}</span><span class="rv">${totalAmount}</span></div>`;
   document.getElementById('receipt-modal').classList.add('active');
 }
 
