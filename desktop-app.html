@@ -4168,12 +4168,14 @@ socket.on('call-missed',   ({ callee, caller }) => {
   else if (caller) { hideIncomingOverlay(); addLobbyMsg({type:'system',text:`📵 Missed call from @${caller}.`}); }
 });
 socket.on('call-cancelled', ({ caller }) => { hideIncomingOverlay(); addLobbyMsg({type:'system',text:`📵 @${caller} cancelled the call.`}); });
-socket.on('call-accepted',  ({ callee, caller, roomName, callerServer }) => {
+socket.on('call-accepted',  ({ callee, caller, roomName, callerServer, callId, startTs }) => {
   hideCallingOverlay(); hideIncomingOverlay();
   const roomToJoin    = roomName;
   const savedPending  = pendingCallRoom;
   pendingCallRoom     = null;
-  const myCallId      = currentCallId || paymentPending?.callId || null;
+  // The server now sends callId + its authoritative startTs to BOTH parties (the
+  // callee previously never learned callId) — needed for Step-6 call attestations.
+  const myCallId      = currentCallId || paymentPending?.callId || callId || null;
   currentCallId       = myCallId;
   // Preserve call type for callee — caller already set it in proceedWithCall
   if (incomingCallData?.callType) pendingCallType = incomingCallData.callType;
@@ -4183,6 +4185,11 @@ socket.on('call-accepted',  ({ callee, caller, roomName, callerServer }) => {
   amCreator = (caller === undefined) ? true : (caller === myUsername);
 
   const iAmCaller = (caller === myUsername) || (caller === undefined);
+
+  // Step 6 — arm the call attestation for this call (signed + sent at hang-up).
+  currentCallAttest = (myCallId && startTs)
+    ? { callId: myCallId, startTs, role: iAmCaller ? 'caller' : 'callee' }
+    : null;
 
   // Federated: if we're the callee and the caller is on another server, connect
   // to that server first so WebRTC signalling reaches the hosting server.
@@ -4505,9 +4512,32 @@ function stopCallTicker() {
   callStartTime = null;
 }
 
+// ── Step 6 — call attestation (SHADOW mode) ─────────────────────────────────
+// At hang-up each party signs its OWN view of the call facts with its Hive posting
+// key (key-login: silent; Keychain: one dismissible popup) and sends it to its home
+// server, which attaches it to the settlement report. The escrow box verifies the
+// signatures against the accounts' ON-CHAIN posting keys and logs a verdict.
+// Best-effort by design: declining/dismissing changes nothing today (shadow) — the
+// box just records the attestation as absent.
+let currentCallAttest = null;
+async function sendCallAttestation() {
+  const a = currentCallAttest;
+  currentCallAttest = null;                    // one shot per call
+  if (!a || !myUsername) return;
+  try {
+    const endTs = Date.now();
+    // MUST stay byte-identical to escrow-core buildCallAttestationPayload().
+    const payload = `v4call-call-attest-v1|${a.callId}|${a.role}|${myUsername.toLowerCase()}|${a.startTs}|${endTs}`;
+    const sig = await signRaw(payload);
+    if (!sig) return;                          // user dismissed Keychain — fine (shadow)
+    socket.emit('call-attest', { callId: a.callId, role: a.role, account: myUsername, startTs: a.startTs, endTs, sig });
+  } catch (e) { console.warn('[attest] call attestation skipped:', e); }
+}
+
 function endCall() {
   if (!currentRoom) return;
   if (!confirm('End this call?')) return;
+  sendCallAttestation();                       // async — settlement grace-waits briefly
   rsock().emit('call-end', { callId: currentCallId });
   addSystemMsg('You ended the call.');
   stopCallTicker();
@@ -4522,6 +4552,7 @@ socket.on('call-cap-warning', ({ minutesLeft }) => {
 // Duration cap reached — server ended call
 socket.on('call-cap-reached', ({ maxMinutes }) => {
   addSystemMsg(`⏰ Call ended — ${maxMinutes} minute duration cap reached.`);
+  sendCallAttestation();
   stopCallTicker();
   setTimeout(() => leaveRoom(), 2500);
 });
@@ -4534,6 +4565,7 @@ socket.on('payout-failed', ({ amount, reason, callId, currency }) => {
 
 socket.on('peer-hung-up', ({ by }) => {
   addSystemMsg(`📵 @${by} ended the call.`);
+  sendCallAttestation();                       // the non-ender's co-signature
   stopCallTicker();
   setTimeout(() => leaveRoom(), 2500);
 });
