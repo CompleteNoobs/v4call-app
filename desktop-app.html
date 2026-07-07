@@ -2683,6 +2683,17 @@ async function openDmPanel(username) {
     return;
   }
 
+  // No-tier policy: matching none of the recipient's posted tiers = no contact,
+  // not a free message.
+  if (rateResp.noTier) {
+    rateEl.textContent  = `🚫 ${rateResp.message || 'You don\'t match any of this user\'s rate tiers'}`;
+    rateEl.className    = 'blocked';
+    dmPanelBlocked      = true;
+    inputEl.placeholder = 'This user only accepts contact from users matching their posted rates.';
+    sendBtn.disabled    = true;
+    return;
+  }
+
   const options = rateResp.options || [];
   if (!rateResp.found || rateResp.free || options.length === 0) {
     dmPanelRate      = 0;
@@ -3907,6 +3918,10 @@ async function initiateCall(callee, callType = 'voice') {
     }
     if (response.feeRejected) {
       addLobbyMsg({type:'system',text:`⚠ ${response.message}`});
+      return;
+    }
+    if (response.noTier) {
+      addLobbyMsg({type:'system',text:`🚫 ${response.message || `@${callee} only accepts calls from users matching their posted rates — you don't qualify.`}`});
       return;
     }
     // escrowMismatch responses are found:true with NO options — without the
