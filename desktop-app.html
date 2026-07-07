@@ -359,6 +359,20 @@
     /* v0.16.9 — Missed-call popup with refund button */
     #missed-calls-modal{display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;}
     #missed-calls-modal.active{display:flex;}
+    /* v0.17 Part C — paid-expert receipts summary ("while you were away") */
+    #expert-receipts-modal{display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;}
+    #expert-receipts-modal.active{display:flex;}
+    .xr-box{background:var(--surface);border:1px solid #7ee0d6;border-radius:12px;padding:24px;width:400px;max-width:92vw;display:flex;flex-direction:column;gap:12px;font-family:'IBM Plex Mono',monospace;}
+    .xr-box h3{font-size:0.9rem;color:#7ee0d6;}
+    .xr-box p{font-size:0.74rem;color:var(--subtext);line-height:1.6;}
+    #expert-receipts-list{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;}
+    .xr-row{display:flex;flex-direction:column;gap:3px;padding:8px 10px;background:rgba(126,224,214,0.06);border:1px solid rgba(126,224,214,0.25);border-radius:6px;font-size:0.72rem;color:var(--text);}
+    .xr-row .xr-head{display:flex;justify-content:space-between;gap:8px;}
+    .xr-row .xr-who{color:#7ee0d6;font-weight:600;}
+    .xr-row .xr-amt{font-weight:600;}
+    .xr-row .xr-sub{color:var(--subtext);font-size:0.66rem;}
+    .xr-row.failed{border-color:var(--danger);background:rgba(224,90,90,0.08);}
+    .xr-row.failed .xr-who{color:var(--danger);}
     .missed-calls-box{background:var(--surface);border:1px solid var(--green);border-radius:12px;padding:24px;width:380px;max-width:92vw;display:flex;flex-direction:column;gap:12px;font-family:'IBM Plex Mono',monospace;}
     .missed-calls-box h3{font-size:0.9rem;color:var(--green);}
     .missed-calls-box p{font-size:0.74rem;color:var(--subtext);line-height:1.6;}
@@ -1600,6 +1614,16 @@
     <p>Each caller paid a ring fee that's still in escrow. Click <strong>Refund</strong> to send it back, or <strong>Close</strong> to keep the fee.</p>
     <div id="missed-calls-list"></div>
     <button class="primary" onclick="dismissMissedCallsAlert()" style="font-size:0.82rem;padding:9px;">Close</button>
+  </div>
+</div>
+
+<!-- v0.17 Part C — PAID EXPERT RECEIPTS ("while you were away") -->
+<div id="expert-receipts-modal">
+  <div class="xr-box">
+    <h3>💎 Paid Expert Receipts</h3>
+    <p>Settlements that completed since you last looked.</p>
+    <div id="expert-receipts-list"></div>
+    <button class="primary" onclick="dismissExpertReceipts()" style="font-size:0.82rem;padding:9px;background:#7ee0d6;color:#0a0c0f;">Got it</button>
   </div>
 </div>
 
@@ -3528,6 +3552,50 @@ socket.on('expert-session-ending', ({ expert, reason, perspective }) => {
     ? `💎 Your paid session ended (${String(reason||'').replace(/_/g,' ')}) — settling your earnings…`
     : `💎 @${expert}'s paid session ended (${String(reason||'').replace(/_/g,' ')}) — settling…`);
 });
+
+// Part C — durable receipts summary on login ("while you were away"). Each row is
+// role-aware: as the inviter you see what you paid / got refunded; as the expert
+// what you earned. Dismiss acks the server so these aren't re-shown next login.
+let _xrShownIds = [];
+socket.on('expert-receipts-summary', ({ receipts }) => {
+  if (!Array.isArray(receipts) || !receipts.length) return;
+  const list = document.getElementById('expert-receipts-list');
+  list.innerHTML = '';
+  _xrShownIds = receipts.map(r => r.offer_id);
+  receipts.forEach(r => {
+    const amInviter = r.inviter === myUsername;
+    const cur   = r.currency || 'HBD';
+    const bad   = r.status === 'failed';
+    const when  = (r.settled_at || '').slice(0, 16) + ' UTC';
+    let who, amt, sub;
+    if (r.kind === 'offer_refund') {
+      who = `↩️ Offer to @${escapeHtml(r.expert)}${r.room ? ' · #' + escapeHtml(r.room) : ''}`;
+      amt = `+ ${dfmt(r.refund, cur)} ${cur} refunded`;
+      sub = `${String(r.end_reason || 'not accepted').replace(/_/g,' ')} · ${when}`;
+    } else if (amInviter) {
+      const paid = (r.connect_paid || 0) + (r.duration_cost || 0);
+      who = `💎 Session with @${escapeHtml(r.expert)}${r.room ? ' · #' + escapeHtml(r.room) : ''}`;
+      amt = `− ${dfmt(paid, cur)} ${cur}${r.refund > 0 ? ` · + ${dfmt(r.refund, cur)} back` : ''}`;
+      sub = `${(r.duration_min || 0).toFixed(1)} min · ${when}`;
+    } else {
+      who = `💎 Expert session for @${escapeHtml(r.inviter)}${r.room ? ' · #' + escapeHtml(r.room) : ''}`;
+      amt = `+ ${dfmt(r.payout_net, cur)} ${cur} earned`;
+      sub = `${(r.duration_min || 0).toFixed(1)} min · ${when}`;
+    }
+    if (bad) sub = `⚠ settlement FAILED — funds held in escrow, contact the operator · ${sub}`;
+    else if (r.status === 'pending') sub = `⏳ payout still in flight (auto-retrying) · ${sub}`;
+    const el = document.createElement('div');
+    el.className = 'xr-row' + (bad ? ' failed' : '');
+    el.innerHTML = `<div class="xr-head"><span class="xr-who">${who}</span><span class="xr-amt">${amt}</span></div><div class="xr-sub">${sub}</div>`;
+    list.appendChild(el);
+  });
+  document.getElementById('expert-receipts-modal').classList.add('active');
+});
+function dismissExpertReceipts() {
+  document.getElementById('expert-receipts-modal').classList.remove('active');
+  if (_xrShownIds.length) socket.emit('expert-receipts-seen', { offerIds: _xrShownIds });
+  _xrShownIds = [];
+}
 
 function startExpertTicker(s, amExpert) {
   stopExpertTicker();
