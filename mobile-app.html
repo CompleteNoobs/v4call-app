@@ -4137,11 +4137,11 @@ socket.on('call-receipt', (receipt) => {
 
 function showReceipt(r) {
   const isCaller = r.perspective === 'caller';
-  // Money flow:
+  // Money flow (ring-fee model, 2026-07-07 — ring belongs to the callee):
   // Caller paid: ring + connect + deposit
-  // Callee gets: connect + duration_cost - platform%
+  // Callee gets: ring + connect + duration_cost - platform%
   // Caller gets back: unused deposit (refund)
-  // Platform gets: ring + platform% of (connect + duration)
+  // Platform gets: platform% of (ring + connect + duration)
 
   const cur = r.currency || 'HBD';
   const rp  = (typeof r.precision === 'number') ? r.precision
@@ -4158,10 +4158,7 @@ function showReceipt(r) {
     ['Credit deposit',  r.depositPaid > 0 ? fmt(r.depositPaid) : '—'],
     ['Duration cost',   r.durationCost > 0 ? fmt(r.durationCost) : 'FREE'],
     ['Unused refund',   r.refundAmount > 0 ? '+ ' + fmt(r.refundAmount) + ' returned' : 'none'],
-    // platformTotal already includes the ring fee shown above — label it so the
-    // line items don't look like they double-charge the ring.
-    [(r.ringPaid > 0 ? 'Platform fee (incl. ring)' : 'Platform fee'),
-                        (r.platformTotal || r.platformOnCall || 0) > 0
+    ['Platform fee',    (r.platformTotal || r.platformOnCall || 0) > 0
                           ? fmt(r.platformTotal || r.platformOnCall || 0) : '—'],
     ['End reason',      (r.endReason || 'call ended').replace(/_/g,' ')],
   ] : [
@@ -4169,6 +4166,7 @@ function showReceipt(r) {
     ['Duration',        (r.durationMin || 0).toFixed(1) + ' min'],
     ['Start',           (r.startTime || '').replace('T',' ').slice(0,19) + ' UTC'],
     ['End',             (r.endTime   || '').replace('T',' ').slice(0,19) + ' UTC'],
+    ['Ring fee',        r.ringPaid    > 0 ? fmt(r.ringPaid)    : 'FREE'],
     ['Connect fee',     r.connectPaid > 0 ? fmt(r.connectPaid) : 'FREE'],
     ['Duration cost',   r.durationCost > 0 ? fmt(r.durationCost) : 'FREE'],
     ['Platform cut',    (r.platformOnCall || 0) > 0 ? '- ' + fmt(r.platformOnCall || 0) : '—'],
