@@ -32,3 +32,21 @@ chosen **v4call-node** via `nodeBase()`; can be hosted as a web app or packaged 
   refund / platform fee / net), and a loud "⚠ funds still held in escrow" banner whenever a settlement comes
   back pending/failed — plus a follow-up "✓ settlement completed" notice when the escrow box's recovery retry
   lands the payouts.
+- **v0.18 — outgoing call quality selector (desktop, shipped 2026-07-09).** Auto / Low / Medium / High dropdown
+  that caps the user's *own* outgoing video bitrate + capture resolution (sender-side only — WebRTC gives no way
+  to throttle what a peer sends *you*, so each user controls only what they send). A pre-call picker in the
+  lobby's ONLINE header and a live in-call picker in the control pill; mid-call changes apply instantly via
+  `RTCRtpSender.setParameters()` / `track.applyConstraints()` with no renegotiation. Choice persists in
+  `localStorage` (`v4call:quality`). Helps callers on slow/low-data connections.
+- **v0.19 — local self-recording (desktop, shipped + tested 2026-07-09).** Red ⏺ Record button in the in-call
+  control pill opens an options modal (format WebM/MP4, probed via `MediaRecorder.isTypeSupported` · one file
+  vs. separate audio+video · new part every N minutes). Records **only the user's own** outgoing media (their
+  `localStream` — mic/cam, or the screen while sharing); never other participants, so there's no signalling and
+  no recording-consent problem. Streams each 1 s timeslice straight to a user-picked folder via the File System
+  Access API so RAM stays flat; time-splits by stop/restart so every part is a complete standalone file, and
+  also cuts a fresh part whenever mic/cam/screenshare is toggled. Each part gets an ISO-8601-UTC filename plus a
+  sidecar `.json` (start/end/duration/mediaKind/files) so an editor can line the parts up. Settings persist in
+  `localStorage` (`v4call:record`).
+  - **Browser support: Chrome or Edge only.** Brave disables the File System Access API by default (privacy
+    setting), so recording won't work there — the button shows a "needs Chrome/Edge" message instead of failing
+    silently. (Confirmed on Brave 2026-07-09.)

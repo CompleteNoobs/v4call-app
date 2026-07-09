@@ -1338,7 +1338,7 @@
       <div class="xo-field"><label>FILES</label><select id="rec-mode"><option value="combined">One file (A+V)</option><option value="separate">Separate audio + video</option></select></div>
       <div class="xo-field"><label>NEW PART EVERY (min)</label><input id="rec-split" type="number" min="1" step="1" value="5"/></div>
     </div>
-    <div class="payment-note">Clicking Start will ask you to pick a save folder. A new part file also begins whenever you toggle mic/cam/screen. Needs Chrome, Edge, or Brave.</div>
+    <div class="payment-note">Clicking Start will ask you to pick a save folder. A new part file also begins whenever you toggle mic/cam/screen. Needs Chrome or Edge — Brave blocks folder access by default.</div>
     <div class="payment-btn-row">
       <button id="rec-start-btn" style="background:#f87171;color:#0a0c0f;" onclick="startRecordFromModal()">Choose folder &amp; start →</button>
       <button style="background:var(--surface2);color:var(--subtext);border:1px solid var(--border)!important;" onclick="closeRecordModal()">Cancel</button>
@@ -2104,7 +2104,7 @@ let selectedCallQuality = (() => { try { return localStorage.getItem('v4call:qua
 // v0.19 — local self-recording. Records ONLY localStream (this user's own
 // outgoing mic/cam, or the screen track while sharing); never touches peers,
 // so no signalling and no consent problem. Saves to a folder the user picks
-// via the File System Access API (Chromium: Brave/Chrome/Edge), streaming each
+// via the File System Access API (Chrome/Edge; Brave blocks it by default), streaming each
 // timeslice chunk straight to disk so RAM stays flat on long recordings.
 let recState = null;                 // null = idle; else the active-recording bag (see startRecording)
 let recServerOffsetMs = 0;           // 0 = trust the local OS clock (already NTP-synced); phase-3 may set from server
@@ -8537,7 +8537,7 @@ async function toggleRecord(){ if (recState) await stopRecording(); else openRec
 
 async function startRecording(settings){
   if (typeof window.showDirectoryPicker !== 'function') {
-    addSystemMsg('⏺ Recording needs a Chromium browser (Chrome, Edge, or Brave) — this one can’t save to a folder.'); return;
+    addSystemMsg('⏺ Recording needs Chrome or Edge — this browser can’t save to a folder. (Brave blocks the File System Access API by default.)'); return;
   }
   const { audio, video } = recCurrentTracks();
   if (!audio && !video) { addSystemMsg('⏺ Nothing to record yet — turn on your mic or camera first.'); return; }
