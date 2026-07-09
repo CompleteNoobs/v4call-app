@@ -617,6 +617,10 @@
     .quality-select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-family:'IBM Plex Mono',monospace;font-size:0.68rem;font-weight:600;letter-spacing:0.03em;cursor:pointer;}
     #incall-quality-select{display:none;}
     #incall-quality-select.shown{display:inline-block;}
+    #record-btn{display:none;padding:5px 11px;background:transparent;border-radius:6px;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:0.68rem;font-weight:600;letter-spacing:0.03em;transition:background 0.15s,opacity 0.2s;color:#f87171;border:1px solid rgba(248,113,113,0.45);}
+    #record-btn:hover{background:rgba(248,113,113,0.1);}
+    #record-btn.shown{display:inline-flex;align-items:center;}
+    #record-btn.recording{background:#f87171;color:#0a0c0f;border-color:#f87171;}
     /* (#users-panel layout is defined in the product-layout block above) */
     #users-panel-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);}
     #users-panel-header h3{font-family:'IBM Plex Mono',monospace;font-size:0.82rem;font-weight:600;color:var(--text);letter-spacing:0.02em;}
@@ -1324,6 +1328,24 @@
   </div>
 </div>
 
+<!-- v0.19 — LOCAL RECORDING OPTIONS -->
+<div id="record-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
+  <div class="payment-box" style="border-color:#f87171;width:340px;">
+    <h3 style="color:#f87171;">⏺ Record your own audio/video</h3>
+    <p style="font-size:0.76rem;color:var(--subtext);line-height:1.55;">Records <strong>only your own</strong> mic + camera (or your screen while sharing) to a folder you choose — nothing from other people. A UTC timestamp goes into each filename plus a matching <code>.json</code> so an editor can line the parts up.</p>
+    <div class="xo-grid">
+      <div class="xo-field"><label>FORMAT</label><select id="rec-format"></select></div>
+      <div class="xo-field"><label>FILES</label><select id="rec-mode"><option value="combined">One file (A+V)</option><option value="separate">Separate audio + video</option></select></div>
+      <div class="xo-field"><label>NEW PART EVERY (min)</label><input id="rec-split" type="number" min="1" step="1" value="5"/></div>
+    </div>
+    <div class="payment-note">Clicking Start will ask you to pick a save folder. A new part file also begins whenever you toggle mic/cam/screen. Needs Chrome, Edge, or Brave.</div>
+    <div class="payment-btn-row">
+      <button id="rec-start-btn" style="background:#f87171;color:#0a0c0f;" onclick="startRecordFromModal()">Choose folder &amp; start →</button>
+      <button style="background:var(--surface2);color:var(--subtext);border:1px solid var(--border)!important;" onclick="closeRecordModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- v0.17 — PAID EXPERT ACCEPT-TERMS (expert) -->
 <div id="expert-accept-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(10,12,15,0.88);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
   <div class="payment-box" style="border-color:#7ee0d6;width:340px;">
@@ -1724,6 +1746,7 @@
       <button id="enable-mic-btn"      onclick="toggleMic()"           title="Turn your microphone on or off for this room">🎤 Unmute</button>
       <button id="enable-cam-btn"      onclick="toggleCam()"           title="Turn your camera on or off for this room">🎥 Start Cam</button>
       <button id="share-screen-btn"    onclick="toggleScreen()"        title="Share your screen with the room">🖥️ Share Screen</button>
+      <button id="record-btn"          onclick="toggleRecord()"        title="Record your own audio/video locally to a folder">⏺ Record</button>
       <select id="incall-quality-select" class="quality-select" onchange="setCallQuality(this.value)" title="Change your outgoing video quality — takes effect immediately, no reconnect needed">
         <option value="auto">Auto</option>
         <option value="low">Low (data saver)</option>
@@ -2078,6 +2101,37 @@ const QUALITY_CONSTRAINTS = {
 };
 let selectedCallQuality = (() => { try { return localStorage.getItem('v4call:quality') || 'auto'; } catch(_) { return 'auto'; } })();
 { const qSel = document.getElementById('call-quality-select'); if (qSel) qSel.value = selectedCallQuality; }
+// v0.19 — local self-recording. Records ONLY localStream (this user's own
+// outgoing mic/cam, or the screen track while sharing); never touches peers,
+// so no signalling and no consent problem. Saves to a folder the user picks
+// via the File System Access API (Chromium: Brave/Chrome/Edge), streaming each
+// timeslice chunk straight to disk so RAM stays flat on long recordings.
+let recState = null;                 // null = idle; else the active-recording bag (see startRecording)
+let recServerOffsetMs = 0;           // 0 = trust the local OS clock (already NTP-synced); phase-3 may set from server
+const REC_DEFAULTS = { format: 'webm', mode: 'combined', splitMin: 5 };
+function getRecSettings(){ try { return { ...REC_DEFAULTS, ...(JSON.parse(localStorage.getItem('v4call:record')) || {}) }; } catch(_) { return { ...REC_DEFAULTS }; } }
+function setRecSettings(cfg){ try { localStorage.setItem('v4call:record', JSON.stringify(cfg)); } catch(_) {} }
+function recNowUTC(){ return new Date(Date.now() + recServerOffsetMs).toISOString(); }
+// Candidate MIME strings per format/variant; first one the browser supports wins.
+const REC_FORMATS = {
+  webm: { label: 'WebM (VP9/Opus)',
+    combined: ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'],
+    video:    ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'],
+    audio:    ['audio/webm;codecs=opus','audio/webm'],
+    cext: 'webm', vext: 'webm', aext: 'webm' },
+  mp4:  { label: 'MP4 (H.264/AAC)',
+    combined: ['video/mp4;codecs=avc1,mp4a.40.2','video/mp4'],
+    video:    ['video/mp4;codecs=avc1','video/mp4'],
+    audio:    ['audio/mp4;codecs=mp4a.40.2','audio/mp4'],
+    cext: 'mp4', vext: 'mp4', aext: 'm4a' },
+};
+function pickMime(list){ for (const m of (list||[])) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch(_) {} } return ''; }
+// A format is offered only if the browser can record its combined variant.
+function supportedRecFormats(){
+  const out = [];
+  for (const key of Object.keys(REC_FORMATS)) { if (pickMime(REC_FORMATS[key].combined)) out.push(key); }
+  return out.length ? out : ['webm'];
+}
 let amCreator = false;
 let roomCreatorName = '';   // v0.17 — current room's admin (for the paid-expert ticker label)
 // v0.15 — admin-broadcast spotlight target (username) and per-client local pin override.
@@ -4367,6 +4421,7 @@ async function enterRoom(roomName) {
   document.getElementById('enable-mic-btn').classList.add('shown');
   document.getElementById('enable-cam-btn').classList.add('shown');
   document.getElementById('share-screen-btn').classList.add('shown');
+  document.getElementById('record-btn').classList.add('shown');
   document.getElementById('incall-quality-select').classList.add('shown');
   if (pendingCallType === 'text') {
     // Text-only entry — no media acquisition. User opts in via the
@@ -4426,6 +4481,13 @@ function leaveRoom(opts) {
   stopExpertTicker();   // v0.17 — clear the paid-expert session ticker on leave
   currentCallId = null; pendingRates = null;
   pendingCallType = 'voice'; // reset for next call
+  // v0.19 — finalize any in-progress recording before we stop the tracks, so
+  // the last part's files are closed and its sidecar written. requestData()
+  // flushes the current buffer first so no final frames are lost on leave.
+  if (recState) {
+    try { recState.recorders.forEach(r => { if (r.state === 'recording') r.requestData(); }); } catch(_) {}
+    stopRecording();
+  }
   // v0.15 — stop screen share if active so the browser's "Sharing" indicator
   // disappears even if the user leaves mid-share.
   if (currentScreenStream) {
@@ -4448,6 +4510,7 @@ function leaveRoom(opts) {
   document.getElementById('enable-mic-btn').classList.remove('shown');
   document.getElementById('enable-cam-btn').classList.remove('shown');
   document.getElementById('share-screen-btn').classList.remove('shown');
+  document.getElementById('record-btn').classList.remove('shown');
   document.getElementById('incall-quality-select').classList.remove('shown');
   // Reset button labels for the next room (state-aware wording)
   document.getElementById('enable-mic-btn').textContent = '🎤 Unmute';
@@ -8415,6 +8478,7 @@ async function startScreenShare() {
   const localWrapper = document.getElementById('local-video')?.parentElement;
   if (localWrapper) setSpotlight(localWrapper, { user: true });
   addSystemMsg('🖥️ Screen sharing started');
+  recOnMediaChange();
 }
 
 async function stopScreenShare() {
@@ -8443,6 +8507,172 @@ async function stopScreenShare() {
   refreshVideoPanelVisibility();
   updateMediaButtons();
   addSystemMsg('🖥️ Screen sharing stopped');
+  recOnMediaChange();
+}
+
+// ── v0.19 local self-recording controller ────────────────────────────────
+// Snapshot of the user's own current outgoing tracks (audio + video).
+function recCurrentTracks(){
+  const audio = localStream ? (localStream.getAudioTracks()[0] || null) : null;
+  const video = localStream ? (localStream.getVideoTracks()[0] || null) : null;
+  return { audio, video };
+}
+function recMediaKind(){
+  if (currentScreenStream) return 'screen';
+  return (localStream && localStream.getVideoTracks().length) ? 'camera' : 'none';
+}
+function recBaseName(part){
+  const room = (currentRoom || 'room').replace(/[^\w.-]/g,'_');
+  const user = (myUsername || 'me').replace(/[^\w.-]/g,'_');
+  return `${room}_${user}_${recState.sessionUTC.replace(/:/g,'-')}_part${String(part).padStart(2,'0')}`;
+}
+// Serialize every segment transition through one promise chain so the timer,
+// media-change cuts, and stop can never overlap (no reentrancy, correct order).
+function recEnqueue(fn){
+  if (!recState) return Promise.resolve();
+  recState.chain = (recState.chain || Promise.resolve()).then(fn).catch(e => { try { addSystemMsg('⏺ Recording error: ' + (e && e.message || e)); } catch(_) {} });
+  return recState.chain;
+}
+async function toggleRecord(){ if (recState) await stopRecording(); else openRecordModal(); }
+
+async function startRecording(settings){
+  if (typeof window.showDirectoryPicker !== 'function') {
+    addSystemMsg('⏺ Recording needs a Chromium browser (Chrome, Edge, or Brave) — this one can’t save to a folder.'); return;
+  }
+  const { audio, video } = recCurrentTracks();
+  if (!audio && !video) { addSystemMsg('⏺ Nothing to record yet — turn on your mic or camera first.'); return; }
+  let dirHandle;
+  try { dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' }); }
+  catch(_) { return; } // user cancelled the folder picker
+  recState = { dirHandle, settings, sessionUTC: recNowUTC(), partIndex: 0, partsDone: 0, chain: Promise.resolve(), stopping: false, recorders: [], stopPromises: [], segFiles: [] };
+  updateRecordButton();
+  await recEnqueue(startSegment);
+  recState.splitTimer = setInterval(() => rotateSegment(), Math.max(1, settings.splitMin) * 60000);
+  addSystemMsg(`⏺ Recording your own audio/video — new part every ${settings.splitMin} min or when you change mic/cam/screen.`);
+}
+
+// Open the file(s) + recorder(s) for one part. Only called when ≥1 track exists.
+async function startSegment(){
+  if (!recState) return;
+  recState.partIndex++;
+  recState.segStartUTC  = recNowUTC();
+  recState.segStartPerf = performance.now();
+  recState.segMediaKind = recMediaKind();
+  recState.recorders = []; recState.stopPromises = []; recState.segFiles = [];
+  const { audio, video } = recCurrentTracks();
+  const fmt  = REC_FORMATS[recState.settings.format] || REC_FORMATS.webm;
+  const base = recBaseName(recState.partIndex);
+
+  const openRecorder = async (tracks, mime, fileName) => {
+    if (!tracks.length) return;
+    const stream = new MediaStream(tracks);
+    let rec;
+    try { rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+    catch(e) { addSystemMsg('⏺ Could not start recorder: ' + (e.message || e)); return; }
+    const fh = await recState.dirHandle.getFileHandle(fileName, { create: true });
+    const writer = await fh.createWritable();
+    let resolveStop; const stopped = new Promise(r => resolveStop = r);
+    rec.ondataavailable = async (e) => { if (e.data && e.data.size) { try { await writer.write(e.data); } catch(_) {} } };
+    rec.onstop = async () => { try { await writer.close(); } catch(_) {} resolveStop(); };
+    recState.recorders.push(rec);
+    recState.stopPromises.push(stopped);
+    recState.segFiles.push(fileName);
+    rec.start(1000); // 1s timeslice → incremental disk writes, flat RAM
+  };
+
+  if (recState.settings.mode === 'separate') {
+    if (video) await openRecorder([video], pickMime(fmt.video), `${base}.video.${fmt.vext}`);
+    if (audio) await openRecorder([audio], pickMime(fmt.audio), `${base}.audio.${fmt.aext}`);
+  } else {
+    const tracks = [audio, video].filter(Boolean);
+    const mime = video ? pickMime(fmt.combined) : pickMime(fmt.audio); // audio-only → audio container
+    const ext  = video ? fmt.cext : fmt.aext;
+    await openRecorder(tracks, mime, `${base}.${ext}`);
+  }
+}
+
+function rotateSegment(){ return recEnqueue(() => doRotate(false)); }
+
+// Finalize the current part (write its sidecar); then, unless stopping, open the
+// next part IF there's media. With no media the recorder goes dormant and the
+// next media-change kicks off a fresh part.
+async function doRotate(isStop){
+  if (!recState) return;
+  if (recState.recorders.length) {
+    const part       = recState.partIndex;
+    const files      = recState.segFiles.slice();
+    const startUTC   = recState.segStartUTC;
+    const mediaKind  = recState.segMediaKind;
+    const durationMs = Math.round(performance.now() - recState.segStartPerf);
+    const mime       = (recState.recorders[0] && recState.recorders[0].mimeType) || '';
+    const stops      = recState.stopPromises.slice();
+    recState.recorders.forEach(r => { try { if (r.state !== 'inactive') r.stop(); } catch(_) {} });
+    recState.recorders = []; // guard against a double-stop from an overlapping call
+    await Promise.all(stops);
+    try {
+      const sidecar = { app: 'v4call', room: currentRoom || '', participant: myUsername || '', part,
+        startUTC, endUTC: recNowUTC(), durationMs,
+        clockSource: recServerOffsetMs ? 'server-offset' : 'local-os', serverOffsetMs: recServerOffsetMs,
+        mode: recState.settings.mode, mediaKind, mimeType: mime, files };
+      const fh = await recState.dirHandle.getFileHandle(recBaseName(part) + '.json', { create: true });
+      const w  = await fh.createWritable();
+      await w.write(new Blob([JSON.stringify(sidecar, null, 2)], { type: 'application/json' }));
+      await w.close();
+    } catch(_) {}
+    recState.partsDone++;
+  }
+  if (isStop || recState.stopping) return;
+  const { audio, video } = recCurrentTracks();
+  if (audio || video) await startSegment(); // only open a new part when there's something to record
+}
+
+async function stopRecording(){
+  if (!recState) return;
+  recState.stopping = true;
+  if (recState.splitTimer) { clearInterval(recState.splitTimer); recState.splitTimer = null; }
+  await recEnqueue(() => doRotate(true)); // finalize the last part + its sidecar
+  const n = recState ? recState.partsDone : 0;
+  recState = null;
+  updateRecordButton();
+  addSystemMsg(`⏹ Recording saved — ${n} part${n === 1 ? '' : 's'} written to the folder.`);
+}
+
+// Called at the tail of every media toggle so a mic/cam/screen change begins a
+// fresh part (each part then has consistent content; sidecar mediaKind flips).
+function recOnMediaChange(){ if (recState && !recState.stopping) rotateSegment(); }
+
+function updateRecordButton(){
+  const btn = document.getElementById('record-btn');
+  if (!btn) return;
+  const on = !!recState;
+  btn.textContent = on ? '⏹ Stop' : '⏺ Record';
+  btn.classList.toggle('recording', on);
+  btn.title = on ? 'Stop recording and finalize the files' : 'Record your own audio/video locally to a folder';
+}
+
+// ── record options modal ─────────────────────────────────────────────────
+function openRecordModal(){
+  const s = getRecSettings();
+  const fmtSel = document.getElementById('rec-format');
+  if (fmtSel) {
+    const avail = supportedRecFormats();
+    fmtSel.innerHTML = avail.map(k => `<option value="${k}">${REC_FORMATS[k].label}</option>`).join('');
+    fmtSel.value = avail.includes(s.format) ? s.format : avail[0];
+  }
+  const modeSel = document.getElementById('rec-mode'); if (modeSel) modeSel.value = s.mode;
+  const splitInp = document.getElementById('rec-split'); if (splitInp) splitInp.value = s.splitMin;
+  const m = document.getElementById('record-modal'); if (m) m.style.display = 'flex';
+}
+function closeRecordModal(){ const m = document.getElementById('record-modal'); if (m) m.style.display = 'none'; }
+async function startRecordFromModal(){
+  const settings = {
+    format: document.getElementById('rec-format').value,
+    mode:   document.getElementById('rec-mode').value,
+    splitMin: Math.max(1, parseInt(document.getElementById('rec-split').value, 10) || 5),
+  };
+  setRecSettings(settings);
+  closeRecordModal();
+  await startRecording(settings);
 }
 
 // Map a getUserMedia DOMException to a clear, actionable message. Brave/Chrome on
@@ -8485,6 +8715,7 @@ async function enableMic() {
     }
     updateMediaButtons();
     addSystemMsg('🎤 Microphone enabled');
+    recOnMediaChange();
   } catch(err) {
     alert(mediaErrorMessage(err, 'microphone'));
   }
@@ -8510,6 +8741,7 @@ async function disableMic() {
   }
   updateMediaButtons();
   addSystemMsg('🎤 Microphone disabled');
+  recOnMediaChange();
 }
 
 async function enableCam() {
@@ -8537,6 +8769,7 @@ async function enableCam() {
     });
     updateMediaButtons();
     addSystemMsg('🎥 Camera enabled');
+    recOnMediaChange();
   } catch(err) {
     alert(mediaErrorMessage(err, 'camera'));
   }
@@ -8565,6 +8798,7 @@ async function disableCam() {
   refreshVideoPanelVisibility();
   updateMediaButtons();
   addSystemMsg('🎥 Camera disabled');
+  recOnMediaChange();
 }
 
 function updateMediaButtons() {
