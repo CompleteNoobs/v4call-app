@@ -614,6 +614,9 @@
     #share-screen-btn{color:var(--accent);border:1px solid rgba(245,166,35,0.4);}
     #share-screen-btn:hover{background:rgba(245,166,35,0.1);}
     #enable-mic-btn.shown,#enable-cam-btn.shown,#share-screen-btn.shown{display:inline-flex;align-items:center;}
+    .quality-select{background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-family:'IBM Plex Mono',monospace;font-size:0.68rem;font-weight:600;letter-spacing:0.03em;cursor:pointer;}
+    #incall-quality-select{display:none;}
+    #incall-quality-select.shown{display:inline-block;}
     /* (#users-panel layout is defined in the product-layout block above) */
     #users-panel-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border-bottom:1px solid var(--border);}
     #users-panel-header h3{font-family:'IBM Plex Mono',monospace;font-size:0.82rem;font-weight:600;color:var(--text);letter-spacing:0.02em;}
@@ -1073,6 +1076,12 @@
           <div class="pill" id="invis-pill"></div>
           <span id="invis-label">visible</span>
         </div>
+        <select id="call-quality-select" class="quality-select" onchange="setCallQuality(this.value)" title="Video quality for calls you start or accept">
+          <option value="auto">Auto</option>
+          <option value="low">Low (data saver)</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
         <button class="panel-focus" id="lobby-left-focus" onclick="setLobbyFocus('left')" title="Make Online users the centre panel">⤢</button>
         <button class="panel-chevron" id="lobby-left-chevron" onclick="toggleLobbyZone('left')" title="Collapse / expand">^</button>
       </div>
@@ -1715,6 +1724,12 @@
       <button id="enable-mic-btn"      onclick="toggleMic()"           title="Turn your microphone on or off for this room">🎤 Unmute</button>
       <button id="enable-cam-btn"      onclick="toggleCam()"           title="Turn your camera on or off for this room">🎥 Start Cam</button>
       <button id="share-screen-btn"    onclick="toggleScreen()"        title="Share your screen with the room">🖥️ Share Screen</button>
+      <select id="incall-quality-select" class="quality-select" onchange="setCallQuality(this.value)" title="Change your outgoing video quality — takes effect immediately, no reconnect needed">
+        <option value="auto">Auto</option>
+        <option value="low">Low (data saver)</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
       <button id="follow-spotlight-btn" onclick="followRoomSpotlight()" title="You have a local pin. Click to follow the admin's room spotlight.">↺ Follow room spotlight</button>
     </div>
     <div id="spotlight-slot">
@@ -2051,6 +2066,18 @@ let currentRoomTokenGate = null; // v0.14 — { symbol, amount } | null, used by
 let currentRoomAllowlist = [];   // v0.16.15 — canonical entries from room-info; used by the attachment recipient picker
 let currentScreenStream = null;  // v0.15 — getDisplayMedia stream while sharing (null when not)
 const peers = {}, roomUsers = {}, selectedRecipients = new Set();
+// v0.18 — outgoing call quality (video maxBitrate + capture resolution). Sender-side only;
+// WebRTC has no way for a peer to throttle what someone else sends, so this only ever
+// controls what THIS user sends, and never needs to be signaled to the other party.
+const QUALITY_PRESETS = { auto: null, low: 150_000, medium: 500_000, high: 1_500_000 }; // bps
+const QUALITY_CONSTRAINTS = {
+  auto:   null,
+  low:    { width: {ideal: 320},  height: {ideal: 240}, frameRate: {ideal: 15} },
+  medium: { width: {ideal: 640},  height: {ideal: 480}, frameRate: {ideal: 24} },
+  high:   { width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 30} },
+};
+let selectedCallQuality = (() => { try { return localStorage.getItem('v4call:quality') || 'auto'; } catch(_) { return 'auto'; } })();
+{ const qSel = document.getElementById('call-quality-select'); if (qSel) qSel.value = selectedCallQuality; }
 let amCreator = false;
 let roomCreatorName = '';   // v0.17 — current room's admin (for the paid-expert ticker label)
 // v0.15 — admin-broadcast spotlight target (username) and per-client local pin override.
@@ -4340,6 +4367,7 @@ async function enterRoom(roomName) {
   document.getElementById('enable-mic-btn').classList.add('shown');
   document.getElementById('enable-cam-btn').classList.add('shown');
   document.getElementById('share-screen-btn').classList.add('shown');
+  document.getElementById('incall-quality-select').classList.add('shown');
   if (pendingCallType === 'text') {
     // Text-only entry — no media acquisition. User opts in via the
     // Unmute / Start Cam buttons in the centre control pill. The centre
@@ -4349,7 +4377,7 @@ async function enterRoom(roomName) {
   } else {
     try {
       const wantVideo = (pendingCallType === 'video');
-      localStream = await navigator.mediaDevices.getUserMedia({ video: wantVideo, audio: true });
+      localStream = await navigator.mediaDevices.getUserMedia({ video: getVideoConstraints(wantVideo), audio: true });
       document.getElementById('local-video').srcObject  = localStream;
       document.getElementById('local-label').textContent = '@' + myUsername + (wantVideo ? ' (you)' : ' (voice)');
     } catch(err) { alert(mediaErrorMessage(err, pendingCallType === 'video' ? 'camera' : 'microphone')); currentRoom = ''; return; }
@@ -4420,6 +4448,7 @@ function leaveRoom(opts) {
   document.getElementById('enable-mic-btn').classList.remove('shown');
   document.getElementById('enable-cam-btn').classList.remove('shown');
   document.getElementById('share-screen-btn').classList.remove('shown');
+  document.getElementById('incall-quality-select').classList.remove('shown');
   // Reset button labels for the next room (state-aware wording)
   document.getElementById('enable-mic-btn').textContent = '🎤 Unmute';
   document.getElementById('enable-cam-btn').textContent = '🎥 Start Cam';
@@ -8486,7 +8515,7 @@ async function disableMic() {
 async function enableCam() {
   if (localStream && localStream.getVideoTracks().length > 0) return;
   try {
-    const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const videoStream = await navigator.mediaDevices.getUserMedia({ video: getVideoConstraints(true) });
     const videoTrack  = videoStream.getVideoTracks()[0];
     if (!localStream) {
       localStream = new MediaStream();
@@ -8502,6 +8531,10 @@ async function enableCam() {
       await pc.setLocalDescription(offer);
       rsock().emit('offer', { to: peerId, offer });
     }
+    Object.values(peers).forEach(pc => {
+      const sender = pc.getSenders().find(s => s.track === videoTrack);
+      if (sender) applyBitrateToSender(sender);
+    });
     updateMediaButtons();
     addSystemMsg('🎥 Camera enabled');
   } catch(err) {
@@ -8552,13 +8585,49 @@ function updateMediaButtons() {
     camBtn.style.opacity = isSharing ? '0.5' : '';
   }
   if (shareBtn) shareBtn.textContent = isSharing ? '🖥️ Stop Sharing' : '🖥️ Share Screen';
+  const qSel = document.getElementById('incall-quality-select');
+  if (qSel && qSel.value !== selectedCallQuality) qSel.value = selectedCallQuality;
 }
 socket.on('answer',        async ({ from, answer })    => { if (peers[from]) await peers[from].setRemoteDescription(new RTCSessionDescription(answer)); });
 socket.on('ice-candidate', async ({ from, candidate }) => { if (peers[from]&&candidate) try { await peers[from].addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){} });
+function getVideoConstraints(wantVideo) {
+  if (!wantVideo) return false;
+  return QUALITY_CONSTRAINTS[selectedCallQuality] || true;
+}
+async function applyBitrateToSender(sender) {
+  if (!sender || !sender.track || sender.track.kind !== 'video') return;
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    const cap = QUALITY_PRESETS[selectedCallQuality];
+    if (cap) params.encodings[0].maxBitrate = cap; else delete params.encodings[0].maxBitrate;
+    await sender.setParameters(params);
+  } catch (_) {}
+}
+async function reapplyCallQuality() {
+  // Live mid-call quality switch — setParameters()/applyConstraints() take effect
+  // immediately with no SDP renegotiation, unlike enableMic/enableCam/disableMic.
+  for (const peerId in peers) {
+    const sender = peers[peerId].getSenders().find(s => s.track && s.track.kind === 'video');
+    if (sender) await applyBitrateToSender(sender);
+  }
+  const videoTrack = localStream && localStream.getVideoTracks()[0];
+  if (videoTrack) { try { await videoTrack.applyConstraints(QUALITY_CONSTRAINTS[selectedCallQuality] || {}); } catch (_) {} }
+}
+function setCallQuality(value) {
+  selectedCallQuality = value;
+  try { localStorage.setItem('v4call:quality', value); } catch (_) {}
+  const preSel = document.getElementById('call-quality-select');
+  const inSel  = document.getElementById('incall-quality-select');
+  if (preSel && preSel.value !== value) preSel.value = value;
+  if (inSel  && inSel.value  !== value) inSel.value  = value;
+  if (Object.keys(peers).length > 0) reapplyCallQuality();
+}
 function createPC(peerId) {
   const pc = new RTCPeerConnection(ICE_CFG);
   peers[peerId] = pc;
   if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+  pc.getSenders().filter(s => s.track && s.track.kind === 'video').forEach(s => applyBitrateToSender(s));
   // Ensure both audio + video m-lines exist in the offer regardless of what
   // we're sending. Without this, a text-only joiner's offer has no media
   // sections, the answer mirrors that, and the joiner never receives
