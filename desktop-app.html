@@ -1873,8 +1873,15 @@ function applyNodeChoice() {
 })();
 
 const socket = io(nodeBase());
-// MY_SERVER_DOMAIN is populated from location.host for federated UX.
-const MY_SERVER_DOMAIN = location.host;
+// MY_SERVER_DOMAIN is the domain of the NODE this client is logged into — NOT
+// location.host: since the decoupling the app is static-hosted on a different
+// domain (v4call.com) than the node (node.v4call.com). Federated allowlists
+// store 'user@<node domain>' (the federation peer's domain), so sending the
+// app's domain as homeServer made every federated room join bounce with
+// "Not authorised — needs allowlist".
+const MY_SERVER_DOMAIN = (() => {
+  try { return new URL(nodeBase()).host; } catch (e) { return location.host; }
+})();
 
 // ── Federation: cross-server room socket ────────────────────────────────
 // When we're the callee in a federated call, the room lives on the CALLER's
