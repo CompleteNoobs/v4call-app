@@ -109,6 +109,15 @@
     Each section is its own versioned block — apps read what they understand and ignore the rest.
   </div>
 
+  <div class="warn-box" style="max-width:1240px;">
+    ⚠ <strong>Everything on this page gets published to the Hive blockchain — public &amp; permanent.</strong>
+    Anyone, forever, can read your post: your rates, your list names, the usernames you put on lists
+    (including your <strong>BLOCKED</strong> list — those people can see they're blocked), keys, addresses
+    and contact details. Blockchain posts <strong>cannot be deleted</strong> — editing publishes a new
+    version but every old version stays readable on-chain. Don't include anything (or anyone) you
+    wouldn't want public forever.
+  </div>
+
   <div class="layout">
     <!-- ═══════════════ LEFT: FORM ═══════════════ -->
     <div>
@@ -156,7 +165,9 @@
             What callers pay <strong>you</strong> — invite fee / offer fee / DM fee, plus voice &amp; video ring /
             connect / per-hour. <strong>Priority is the order below</strong>: <code>[BLOCKED]</code> is always first,
             then the middle rules are evaluated <strong>top-to-bottom — first match wins</strong> (drag ⠿ to reorder),
-            then <code>[LIST:default]</code> catches everyone else. Any field <strong>0</strong> = FREE. Use the
+            then <code>[LIST:default]</code> catches everyone else. Any field <strong>0</strong> = FREE.
+            <strong>Units:</strong> each token block prices in its own token; each named list and the default
+            list price in the currency set in their <em>rates in</em> box (HBD unless you change it). Use the
             <strong>tester at the bottom</strong> to check who pays what before posting.
           </div>
 
@@ -197,8 +208,10 @@
             <div class="ru-head">
               <span class="pin-badge">PINNED · last</span>
               <span class="list-name-badge">[LIST:default]</span>
-              <span style="font-size:0.62rem;color:var(--subtext)">last-resort fallback for everyone else</span>
+              <span style="font-size:0.62rem;color:var(--subtext)">last-resort fallback for everyone else · rates in</span>
+              <input id="rd-cur" value="HBD" style="max-width:90px;text-transform:uppercase" title="Currency for every number in this list: HBD, HIVE, or any Hive-Engine token symbol (e.g. TEST)" spellcheck="false"/>
             </div>
+            <div class="field-hint" style="margin-bottom:8px;">The currency box sets the <strong>unit for every number below</strong> (fees + /hr rates). HBD, HIVE, or any Hive-Engine token symbol — e.g. <code>TEST</code> while testing. Older v4call servers ignore this field and read list rates as HBD, so make sure your home server is up to date before pricing in another token.</div>
             <div id="r-default"></div>
           </div>
 
@@ -523,7 +536,7 @@
   // Named lists are draggable middle units, inserted into #rate-order so the user
   // controls priority by drag position. Document order in the emitted post IS priority.
   let listSeq = 0;
-  function addList(name, users){
+  function addList(name, users, cur){
     const id = 'lst' + (++listSeq);
     const card = document.createElement('div');
     card.className = 'rate-unit draggable';
@@ -534,6 +547,8 @@
         <span class="drag-handle" title="drag to reprioritise">⠿</span>
         <span class="list-name-badge">[LIST]</span>
         <input style="max-width:150px" placeholder="name (family/work…)" id="${id}-name" value="${name||''}"/>
+        <span style="font-size:0.62rem;color:var(--subtext)">rates in</span>
+        <input style="max-width:90px;text-transform:uppercase" id="${id}-cur" value="${(cur||'HBD').replace(/"/g,'&quot;')}" title="Currency for every number in this list: HBD, HIVE, or any Hive-Engine token symbol (e.g. TEST)" spellcheck="false"/>
         <button class="danger" onclick="this.closest('.rate-unit').remove();generateOutput();">✕</button>
       </div>
       <div class="field"><label>USERS (comma-separated)</label><input id="${id}-users" placeholder="alice, bob" value="${users||''}"/></div>
@@ -621,6 +636,7 @@
       if (!name || name === 'default') return;
       L.push('', `[LIST:${name}]`);
       L.push('USERS:' + csv(v(`${id}-users`)));
+      L.push('CURRENCY:' + ((v(`${id}-cur`) || 'HBD').toUpperCase()));
       L.push('[DAYS:mon-sun][TIME:00:00-23:59]');
       rateLines(id).forEach(x => L.push(x));
       L.push('[/TIME]', '[/LIST]');
@@ -632,6 +648,7 @@
 
     // 3. default — always last (pinned, last-resort fallback).
     L.push('', '[LIST:default]');
+    L.push('CURRENCY:' + ((v('rd-cur') || 'HBD').toUpperCase()));
     L.push('[DAYS:mon-sun][TIME:00:00-23:59]');
     rateLines('rd').forEach(x => L.push(x));
     L.push('[/TIME]', '[/LIST]');
@@ -800,7 +817,10 @@
         const name = (v(`${id}-name`) || '').toLowerCase();
         if (!name) continue;
         const users = csv(v(`${id}-users`)).split(',').filter(Boolean);
-        if (users.includes(caller)) return setOut(`✅ Matches [LIST:${name}] (first match wins) → that list's rate applies (Invite / Offer / DM / Voice / Video).`, 'pv-ok');
+        if (users.includes(caller)){
+          const lcur = (v(`${id}-cur`) || 'HBD').toUpperCase();
+          return setOut(`✅ Matches [LIST:${name}] (first match wins) → that list's rate applies, priced in ${lcur} (Invite / Offer / DM / Voice / Video).`, 'pv-ok');
+        }
       } else if (unit.dataset.unit === 'tokens'){
         const heldPriced = defined.filter(s => held.has(s));
         if (heldPriced.length) return setOut(`💠 Reaches the Token-rates group → multi-currency picker among held priced tokens: ${heldPriced.join(', ')}.`, 'pv-ok');
@@ -808,7 +828,8 @@
     }
 
     // 3 + 4. default fallback / free
-    return setOut(`↩️ Falls through to [LIST:default] → your default rate (free if all default fields are 0).`, 'pv-ok');
+    const dcur = (v('rd-cur') || 'HBD').toUpperCase();
+    return setOut(`↩️ Falls through to [LIST:default] → your default rate, priced in ${dcur} (free if all default fields are 0).`, 'pv-ok');
   }
   function refreshPreview(){ rebuildPreviewTokens(); computePreview(); }
 
@@ -1015,6 +1036,10 @@
       if (!currentAttestation){ alert('You declared a Nostr key but have not signed an attestation. Sign it in the Nostr section, or untick "include" on Nostr.'); return; }
       if (!attestationStillValid()){ alert('Your Nostr attestation is stale (identity changed since signing). Re-sign before posting.'); return; }
     }
+    if (!confirm(
+      `You are about to publish this post PUBLICLY and PERMANENTLY to the Hive blockchain as @${username}.\n\n` +
+      `Anyone can read it forever — rates, list names, every username on your lists (including the BLOCKED list), ` +
+      `keys/addresses and contact details. It CANNOT be deleted; edits only add new versions.\n\nPost it?`)) return;
     const body = generateOutput();
     const permlink = POST_TITLE + '-' + Date.now();
     const jsonMeta = JSON.stringify({ tags: POST_TAGS, app: APP_VERSION });
@@ -1092,7 +1117,11 @@
       if (blk){ $('r-blocked-users').value = fieldOf(blk,'USERS'); $('r-blocked-msg').value = fieldOf(blk,'MESSAGE'); $('r-blocked-token').value = fieldOf(blk,'ALLOW-IF-TOKEN'); }
       // default list window
       const def = (rb.match(/\[LIST:default\]([\s\S]*?)\[\/LIST\]/i)||[])[1];
-      if (def){ const win = (def.match(/\[TIME:[^\]]*\]([\s\S]*?)\[\/TIME\]/i)||[])[1] || def; setRateGrid('rd', win); }
+      if (def){
+        const win = (def.match(/\[TIME:[^\]]*\]([\s\S]*?)\[\/TIME\]/i)||[])[1] || def;
+        setRateGrid('rd', win);
+        $('rd-cur').value = (fieldOf(def,'CURRENCY') || 'HBD').toUpperCase();
+      }
       // Reconstruct the MIDDLE priority order from document order. Walk the block:
       // the Token-rates group lands at the FIRST [TOKEN:*] position; each non-default
       // [LIST:*] becomes a draggable card in the order it appears.
@@ -1108,21 +1137,25 @@
         } }
       if (!seenTok) order.unshift({t:'tokens'});  // tokens-first default when none present
 
-      // reset the middle, keeping the static token-group card to re-place
-      const tg = $('rate-tokens-group'); tg.remove();
+      // reset the middle, keeping the static token-group card to re-place.
+      // Clear tokens-container BEFORE detaching the group — getElementById
+      // can't see inside a detached node (this ordering bug was the
+      // "Cannot set properties of null (setting 'innerHTML')" Load-from-Hive crash).
+      const tg = $('rate-tokens-group');
       $('tokens-container').innerHTML='';
+      tg.remove();
       [...$('rate-order').querySelectorAll('.rate-unit[data-unit="list"]')].forEach(c=>c.remove());
       // render units in order
       order.forEach(u=>{
         if (u.t==='tokens'){ $('rate-order').appendChild(tg); }
         else {
           const body = listBodies[u.name] || '';
-          const card = addList(u.name, fieldOf(body,'USERS'));
+          const card = addList(u.name, fieldOf(body,'USERS'), (fieldOf(body,'CURRENCY') || 'HBD').toUpperCase());
           const win = (body.match(/\[TIME:[^\]]*\]([\s\S]*?)\[\/TIME\]/i)||[])[1] || body;
           setRateGrid(card.dataset.listId, win);
         }
       });
-      if (!$('rate-tokens-group').parentElement) $('rate-order').insertBefore(tg, $('rate-order').firstChild);
+      if (!tg.parentElement) $('rate-order').insertBefore(tg, $('rate-order').firstChild);
       // populate the token sub-cards (their group position is already set)
       tokenBlocks.forEach(tb=>{
         const card = addToken(tb[1].trim());
