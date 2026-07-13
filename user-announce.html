@@ -69,6 +69,33 @@
     .drag-handle:active{cursor:grabbing;}
     .pin-badge{font-family:'IBM Plex Mono',monospace;font-size:0.6rem;padding:2px 7px;border-radius:999px;background:rgba(245,166,35,0.12);color:var(--accent);}
 
+    /* ── Day-splitter time bands ────────────────────────── */
+    .bands-ui{margin-top:10px;}
+    .bands-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px;}
+    .wk-toggle{display:flex;align-items:center;gap:5px;font-size:0.64rem;color:var(--subtext);margin:0;}
+    .wk-toggle input{width:auto;}
+    .band-group{margin-bottom:10px;}
+    .band-group-label{font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--blue);letter-spacing:0.06em;margin:8px 0 4px;}
+    .band-strip{display:flex;height:22px;border:1px solid var(--border);border-radius:5px;overflow:hidden;margin-bottom:8px;}
+    .band-seg{font-family:'IBM Plex Mono',monospace;font-size:0.58rem;display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden;color:var(--text);}
+    .band-seg.rate{background:rgba(245,166,35,0.18);}
+    .band-seg.free{background:rgba(74,222,128,0.15);color:var(--green);}
+    .band-seg.quiet{background:rgba(248,113,113,0.10);color:#fca5a5;}
+    .band-seg+.band-seg{border-left:1px solid var(--border);}
+    .band-row{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px;}
+    .band-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .band-head input[type=time]{width:auto;font-size:0.72rem;padding:4px 6px;}
+    .band-head select{width:auto;font-size:0.7rem;padding:4px 6px;}
+    .band-endlab{font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:var(--subtext);}
+    .band-kind-hint{font-size:0.64rem;color:var(--muted);margin-top:6px;line-height:1.5;}
+    .band-quiet-note{font-size:0.62rem;color:#fca5a5;margin-top:4px;line-height:1.5;}
+    .band-splitbar{display:flex;align-items:center;gap:6px;margin-top:2px;}
+    .band-splitbar input[type=time]{width:auto;font-size:0.7rem;padding:3px 6px;}
+    .tz-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:10px;}
+    .tz-bar label{margin:0;}
+    .tz-bar select{width:auto;max-width:300px;font-size:0.72rem;}
+    .tz-clock{font-family:'IBM Plex Mono',monospace;font-size:0.66rem;color:var(--blue);}
+
     /* ── Who-pays-what tester ──────────────────────────── */
     .preview-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:6px;}
     .pv-tokens{margin:6px 0 4px;min-height:18px;}
@@ -169,6 +196,20 @@
             <strong>Units:</strong> each token block prices in its own token; each named list and the default
             list price in the currency set in their <em>rates in</em> box (HBD unless you change it). Use the
             <strong>tester at the bottom</strong> to check who pays what before posting.
+            <strong>Time bands:</strong> every unit can split its day into bands — 💰 priced, 🆓 free, or
+            ⛔ quiet hours (callers who match nothing are <em>denied</em>, not free — your phone stays silent).
+          </div>
+
+          <div class="tz-bar">
+            <label>TIMES SHOWN IN</label>
+            <select id="tz-select"></select>
+            <span class="tz-clock" id="tz-clock"></span>
+          </div>
+          <div class="field-hint" style="margin-bottom:12px;">
+            You type times in the zone above; the post stores them in <strong>UTC</strong> so every server on
+            Earth reads the same schedule. Note: the post keeps fixed UTC times — if your country changes its
+            clocks (DST), re-post afterwards if the exact local hour matters to you. Changing the zone above
+            re-interprets the times you typed (it doesn't shift them).
           </div>
 
           <!-- PINNED TOP — BLOCKED (always evaluated first; not draggable) -->
@@ -201,7 +242,7 @@
             <!-- named-list cards are inserted here by addList() -->
           </div>
           <button class="secondary" onclick="addList()">+ Add list</button>
-          <div class="field-hint" style="margin-top:6px;">Lists are single 24/7 windows here; multi-time-window / day-of-week splits aren't supported yet (a former <code>rate-editor.html</code> feature, not carried over — known gap).</div>
+          <div class="field-hint" style="margin-top:6px;">Every list, token and the default can split its day into time bands (✂) — different prices at different hours, 🆓 free spans, or ⛔ quiet hours.</div>
 
           <!-- PINNED BOTTOM — default fallback (not draggable) -->
           <div class="rate-unit pinned" style="margin-top:12px;">
@@ -220,14 +261,14 @@
           <div class="preview-box">
             <div class="row">
               <div class="field"><label>TEST CALLER</label><input id="pv-caller" placeholder="alice"/></div>
-              <div class="field"><label>DAY</label>
+              <div class="field"><label>DAY (your zone)</label>
                 <select id="pv-day">
                   <option value="">now</option>
                   <option value="mon">Mon</option><option value="tue">Tue</option><option value="wed">Wed</option>
                   <option value="thu">Thu</option><option value="fri">Fri</option><option value="sat">Sat</option><option value="sun">Sun</option>
                 </select>
               </div>
-              <div class="field"><label>TIME</label><input id="pv-time" type="time"/></div>
+              <div class="field"><label>TIME (your zone)</label><input id="pv-time" type="time"/></div>
             </div>
             <label>CALLER HOLDS THESE TOKENS (tick any)</label>
             <div id="pv-tokens" class="pv-tokens"></div>
@@ -500,19 +541,268 @@
         <div class="rc"><label>MIN-DEP min</label><input id="${p}-Vdep" type="number" value="0" min="0" step="any"/></div>
       </div>`;
   }
-  // Emit the INVITE/TEXT/VOICE/VIDEO lines for a rate window with id prefix `p`.
-  function rateLines(p){
+  // ══════════════════════════════════════════════════════════
+  //  DAY-SPLITTER TIME BANDS
+  //  Each rate unit (token / named list / default) splits its day into
+  //  contiguous bands: 💰 priced / 🆓 free / ⛔ quiet (callers denied).
+  //  Bands are entered in the user's chosen timezone; the post is UTC.
+  // ══════════════════════════════════════════════════════════
+  const DAY_NAMES = ['mon','tue','wed','thu','fri','sat','sun'];   // grid index 0 = mon
+  const RATE_KEYS = ['invite','offer','dm','vring','vconn','vrate','vdep','Vring','Vconn','Vrate','Vdep'];
+  const WEEKMIN   = 7 * 1440;
+  let bandSeq = 0;
+  const bandModels = {};   // unit key ('rd' | tokId | lstId) → model
+
+  function newBand(start, kind, rates){ return { id: 'b' + (++bandSeq), start, kind: kind || 'rate', rates: rates ? {...rates} : {} }; }
+  function cloneBands(bands){ return bands.map(b => newBand(b.start, b.kind, b.rates)); }
+  function newBandModel(){ return { split: false, groups: { all: [newBand(0)], wk: null, we: null } }; }
+  function ensureModel(key){ if (!bandModels[key]) bandModels[key] = newBandModel(); return bandModels[key]; }
+  function activeGroups(model){
+    return model.split
+      ? [{ g:'wk', label:'MON–FRI', days:[0,1,2,3,4], bands:model.groups.wk },
+         { g:'we', label:'SAT–SUN', days:[5,6],       bands:model.groups.we }]
+      : [{ g:'all', label:'EVERY DAY', days:[0,1,2,3,4,5,6], bands:model.groups.all }];
+  }
+
+  function hmToMin(s){ const m = /^(\d{1,2}):(\d{2})$/.exec((s||'').trim()); return m ? Math.min(1439, (+m[1])*60 + (+m[2])) : null; }
+  function fmtMin(m){ return String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'); }
+  function bandEnd(bands, i){ return (i+1 < bands.length) ? bands[i+1].start : 1440; }
+
+  // ── timezone selector ────────────────────────────────────
+  function fmtOff(m){ const s = m < 0 ? '-' : '+'; const a = Math.abs(m); return `${s}${String(Math.floor(a/60)).padStart(2,'0')}:${String(a%60).padStart(2,'0')}`; }
+  function tzOffsetMin(){ const el = $('tz-select'); if (!el) return 0; return el.value === 'auto' ? -new Date().getTimezoneOffset() : parseInt(el.value, 10) || 0; }
+  function tzShortLabel(){ const el = $('tz-select'); if (!el || el.value === '0') return 'UTC'; return `UTC${fmtOff(tzOffsetMin())}`; }
+  function buildTzSelect(){
+    const sel = $('tz-select'); if (!sel || sel.options.length) return;
+    const auto = -new Date().getTimezoneOffset();
+    let zone = 'your device'; try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || zone; } catch(_){}
+    const offs = new Set([345, 525, 765]);           // +5:45 Nepal, +8:45, +12:45 Chatham
+    for (let m = -720; m <= 840; m += 30) offs.add(m);
+    const opt = (val, label) => { const o = document.createElement('option'); o.value = val; o.textContent = label; sel.appendChild(o); };
+    opt('auto', `Your device — ${zone} (UTC${fmtOff(auto)})`);
+    [...offs].sort((a,b)=>a-b).forEach(m => opt(String(m), m === 0 ? 'UTC (+00:00)' : `UTC${fmtOff(m)}`));
+  }
+  function updateTzClock(){
+    const el = $('tz-clock'); if (!el) return;
+    const n = new Date();
+    const utc = `${String(n.getUTCHours()).padStart(2,'0')}:${String(n.getUTCMinutes()).padStart(2,'0')}`;
+    const lm = ((n.getUTCHours()*60 + n.getUTCMinutes()) + tzOffsetMin() + 1440) % 1440;
+    el.textContent = `now ${utc} UTC = ${fmtMin(lm)} in your zone`;
+  }
+
+  // ── render ───────────────────────────────────────────────
+  function bandsUiHtml(key){
+    return `<div class="bands-ui" data-bandkey="${key}">
+      <div class="bands-top">
+        <span class="slabel" style="margin:0;">TIME BANDS — ${tzShortLabel()} (posted as UTC)</span>
+        <label class="wk-toggle"><input type="checkbox" class="band-splitchk"/> weekends differ</label>
+      </div>
+      <div class="bands-body"></div>
+    </div>`;
+  }
+  function describeBand(b){
+    if (b.kind === 'quiet') return '⛔ quiet';
+    if (b.kind === 'free')  return '🆓 free';
+    const r = b.rates, n = x => parseFloat(x) || 0;
+    const bits = [];
+    if (n(r.vring) || n(r.vrate)) bits.push(`voice ${n(r.vring)}+${n(r.vrate)}/hr`);
+    if (n(r.Vring) || n(r.Vrate)) bits.push(`video ${n(r.Vring)}+${n(r.Vrate)}/hr`);
+    if (n(r.dm)) bits.push(`dm ${n(r.dm)}`);
+    if (n(r.invite)) bits.push(`inv ${n(r.invite)}`);
+    return '💰 ' + (bits.join(' · ') || 'all 0 = free');
+  }
+  function renderBands(key){
+    const holder = document.querySelector(`.bands-ui[data-bandkey="${key}"]`);
+    if (!holder) return;
+    const model = ensureModel(key);
+    holder.querySelector('.band-splitchk').checked = model.split;
+    holder.querySelector('.bands-top .slabel').textContent = `TIME BANDS — ${tzShortLabel()} (posted as UTC)`;
+    const body = holder.querySelector('.bands-body');
+    let html = '';
+    for (const grp of activeGroups(model)){
+      const bands = grp.bands;
+      html += `<div class="band-group" data-bandgroup="${grp.g}">`;
+      if (model.split) html += `<div class="band-group-label">${grp.label}</div>`;
+      html += '<div class="band-strip">';
+      bands.forEach((b, i) => {
+        const s = b.start, e = bandEnd(bands, i);
+        const w = ((e - s) / 1440 * 100).toFixed(2);
+        const label = `${fmtMin(s)}–${fmtMin(e-1)} ${describeBand(b)}`;
+        html += `<div class="band-seg ${b.kind}" style="width:${w}%" title="${label.replace(/"/g,'&quot;')}">${(e-s) >= 180 ? describeBand(b) : ''}</div>`;
+      });
+      html += '</div>';
+      bands.forEach((b, i) => {
+        const s = b.start, e = bandEnd(bands, i);
+        const p = `${key}_${grp.g}_${b.id}`;
+        html += `<div class="band-row" data-bandid="${b.id}">
+          <div class="band-head">
+            <input type="time" class="band-start" value="${fmtMin(s)}" ${i === 0 ? 'disabled title="the first band always starts at 00:00"' : ''}/>
+            <span class="band-endlab">– ${fmtMin(e-1)}</span>
+            <select class="band-kind">
+              <option value="rate"  ${b.kind==='rate' ?'selected':''}>💰 Priced</option>
+              <option value="free"  ${b.kind==='free' ?'selected':''}>🆓 Free</option>
+              <option value="quiet" ${b.kind==='quiet'?'selected':''}>⛔ Quiet hours</option>
+            </select>
+            ${i === 0 ? '' : '<button class="danger band-merge" title="remove this band (merges into the one above)">✕ merge up</button>'}
+          </div>
+          ${b.kind === 'rate'
+            ? `<div class="band-gridwrap" style="margin-top:8px;">${rateGridHtml(p, true)}</div>`
+            : `<div class="band-kind-hint">${b.kind === 'free'
+                ? '🆓 Deliberately free in this band — everyone this unit matches gets through at no cost.'
+                : '⛔ This unit matches nobody in this band. Callers fall through to the next rule below it; if nothing matches, they are <strong>denied</strong> (quiet by default — not free).'}</div>`}
+        </div>`;
+      });
+      html += `<div class="band-splitbar">
+        <input type="time" class="split-time" value="12:00"/>
+        <button class="secondary band-split">✂ Split at this time</button>
+      </div>`;
+      // quiet coverage note
+      const quiet = bands.map((b,i)=>({b, s:b.start, e:bandEnd(bands,i)})).filter(x=>x.b.kind==='quiet');
+      if (quiet.length === bands.length){
+        html += `<div class="band-quiet-note">⚠ fully quiet — this ${key==='rd'?'default list':'unit'} never matches anyone${key==='rd'?'; only token holders / list members can ever reach you':''}.</div>`;
+      } else if (quiet.length){
+        html += `<div class="band-quiet-note">⛔ quiet: ${quiet.map(x=>`${fmtMin(x.s)}–${fmtMin(x.e-1)}`).join(', ')} — callers fall through to later rules then (denied if nothing matches).</div>`;
+      }
+      html += '</div>';
+    }
+    body.innerHTML = html;
+    // fill grid values from the model
+    for (const grp of activeGroups(model)){
+      grp.bands.forEach(b => {
+        if (b.kind !== 'rate') return;
+        RATE_KEYS.forEach(k => { const el = $(`${key}_${grp.g}_${b.id}-${k}`); if (el && b.rates[k] != null) el.value = b.rates[k]; });
+      });
+    }
+  }
+
+  // ── model ⇄ DOM sync ─────────────────────────────────────
+  function syncBandsFromDom(key){
+    const model = bandModels[key]; if (!model) return;
+    for (const grp of activeGroups(model)){
+      grp.bands.forEach(b => {
+        if (b.kind !== 'rate') return;
+        RATE_KEYS.forEach(k => { const el = $(`${key}_${grp.g}_${b.id}-${k}`); if (el) b.rates[k] = el.value; });
+      });
+    }
+  }
+  function syncAllBands(){ Object.keys(bandModels).forEach(syncBandsFromDom); }
+
+  // ── delegated band-UI events (capture: run before the global
+  //    change→generateOutput listener, which may lose re-rendered targets) ──
+  document.addEventListener('change', (e) => {
+    const ui = e.target.closest && e.target.closest('.bands-ui'); if (!ui) return;
+    const key = ui.dataset.bandkey; const model = ensureModel(key);
+    syncBandsFromDom(key);
+    if (e.target.classList.contains('band-splitchk')){
+      model.split = e.target.checked;
+      if (model.split){ model.groups.wk = cloneBands(model.groups.all); model.groups.we = cloneBands(model.groups.all); }
+      else { model.groups.all = cloneBands(model.groups.wk || model.groups.all); }
+      renderBands(key); generateOutput(); return;
+    }
+    const grpEl = e.target.closest('.band-group'); if (!grpEl) return;
+    const bands = model.split ? model.groups[grpEl.dataset.bandgroup] : model.groups.all;
+    const rowEl = e.target.closest('.band-row');
+    const idx = rowEl ? bands.findIndex(b => b.id === rowEl.dataset.bandid) : -1;
+    if (e.target.classList.contains('band-start') && idx > 0){
+      let m = hmToMin(e.target.value);
+      if (m == null) { renderBands(key); return; }
+      const lo = bands[idx-1].start + 1, hi = bandEnd(bands, idx) - 1;
+      bands[idx].start = Math.max(lo, Math.min(hi, m));
+      renderBands(key); generateOutput(); return;
+    }
+    if (e.target.classList.contains('band-kind') && idx >= 0){
+      bands[idx].kind = e.target.value;
+      renderBands(key); generateOutput(); return;
+    }
+  }, true);
+  document.addEventListener('click', (e) => {
+    const ui = e.target.closest && e.target.closest('.bands-ui'); if (!ui) return;
+    const key = ui.dataset.bandkey; const model = ensureModel(key);
+    const grpEl = e.target.closest('.band-group'); if (!grpEl) return;
+    const bands = model.split ? model.groups[grpEl.dataset.bandgroup] : model.groups.all;
+    if (e.target.classList.contains('band-split')){
+      syncBandsFromDom(key);
+      const m = hmToMin(grpEl.querySelector('.split-time').value);
+      if (m == null || m <= 0 || m > 1439 || bands.some(b => b.start === m)) return;
+      let host = 0; bands.forEach((b, i) => { if (b.start < m) host = i; });
+      const nb = newBand(m, bands[host].kind, bands[host].rates);   // inherit the band it splits
+      bands.splice(host + 1, 0, nb);
+      renderBands(key); generateOutput(); return;
+    }
+    if (e.target.classList.contains('band-merge')){
+      syncBandsFromDom(key);
+      const rowEl = e.target.closest('.band-row');
+      const idx = bands.findIndex(b => b.id === rowEl.dataset.bandid);
+      if (idx > 0){ bands.splice(idx, 1); renderBands(key); generateOutput(); }
+      return;
+    }
+  }, true);
+
+  // ── emission: local bands → UTC [DAYS][TIME] windows ─────
+  function bandRateLines(b){
+    if (b.kind === 'free') return ['MODE:free','INVITE:FREE','OFFER:FREE','DM:FREE','VOICE:RING:FREE;CONNECT:FREE;RATE:FREE/hr','VIDEO:RING:FREE;CONNECT:FREE;RATE:FREE/hr'];
+    const r = b.rates, R = x => rvObj(x);
+    const dep = x => { const n = parseFloat(x); return (!n || isNaN(n)) ? '' : `;MIN-DEPOSIT:${n}min`; };
+    return ['INVITE:' + R(r.invite), 'OFFER:' + R(r.offer), 'DM:' + R(r.dm),
+      `VOICE:RING:${R(r.vring)};CONNECT:${R(r.vconn)};RATE:${R(r.vrate)}/hr${dep(r.vdep)}`,
+      `VIDEO:RING:${R(r.Vring)};CONNECT:${R(r.Vconn)};RATE:${R(r.Vrate)}/hr${dep(r.Vdep)}`];
+  }
+  function unitWindowLines(key){
+    syncBandsFromDom(key);
+    const model = ensureModel(key);
+    const off = tzOffsetMin();
+    // paint the local week, shifted into UTC
+    const grid = new Array(WEEKMIN).fill(null);
+    for (const grp of activeGroups(model)){
+      for (const d of grp.days){
+        grp.bands.forEach((b, i) => {
+          if (b.kind === 'quiet') return;
+          const s = b.start, e = bandEnd(grp.bands, i);
+          for (let m = s; m < e; m++) grid[(((d * 1440 + m) - off) % WEEKMIN + WEEKMIN) % WEEKMIN] = b;
+        });
+      }
+    }
+    // per-UTC-day runs → group days with identical schedules
+    const daySigs = [];
+    for (let d = 0; d < 7; d++){
+      const runs = []; let cur = null, start = 0;
+      for (let m = 0; m <= 1440; m++){
+        const vv = (m < 1440) ? grid[d * 1440 + m] : undefined;
+        if (vv !== cur){ if (cur) runs.push({ band: cur, s: start, e: m }); cur = vv; start = m; }
+      }
+      daySigs.push(runs);
+    }
+    const sig = runs => runs.map(r => `${r.band.id}:${r.s}-${r.e}`).join('|');
+    const bySig = {};
+    for (let d = 0; d < 7; d++){ const s = sig(daySigs[d]); (bySig[s] = bySig[s] || { days: [], runs: daySigs[d] }).days.push(d); }
+    const dayLabel = days => {
+      if (days.length === 7) return 'mon-sun';
+      const j = days.join(',');
+      if (j === '0,1,2,3,4') return 'mon-fri';
+      if (j === '5,6') return 'sat-sun';
+      return days.map(d => DAY_NAMES[d]).join(',');
+    };
     const L = [];
-    L.push('INVITE:' + rv(`${p}-invite`));
-    L.push('OFFER:' + rv(`${p}-offer`));
-    L.push('DM:' + rv(`${p}-dm`));
-    const dep = (id) => { const n = parseFloat(v(id)); return (!n||isNaN(n)) ? '' : `;MIN-DEPOSIT:${n}min`; };
-    L.push(`VOICE:RING:${rv(p+'-vring')};CONNECT:${rv(p+'-vconn')};RATE:${rv(p+'-vrate')}/hr${dep(p+'-vdep')}`);
-    L.push(`VIDEO:RING:${rv(p+'-Vring')};CONNECT:${rv(p+'-Vconn')};RATE:${rv(p+'-Vrate')}/hr${dep(p+'-Vdep')}`);
+    let any = false;
+    for (const k of Object.keys(bySig)){
+      const g = bySig[k];
+      for (const r of g.runs){
+        any = true;
+        L.push(`[DAYS:${dayLabel(g.days)}][TIME:${fmtMin(r.s)}-${fmtMin(r.e - 1)}]`);
+        bandRateLines(r.band).forEach(x => L.push(x));
+        L.push('[/TIME]');
+      }
+    }
+    if (!any) L.push('MODE:quiet');   // all bands quiet — marker stops old-node free-fallback for tokens
     return L;
   }
 
-  $('r-default').innerHTML = rateGridHtml('rd', true);
+  buildTzSelect();
+  $('r-default').innerHTML = bandsUiHtml('rd');
+  ensureModel('rd');
+  renderBands('rd');
+  updateTzClock();
+  setInterval(updateTzClock, 30000);
 
   let tokSeq = 0;
   function addToken(symbol){
@@ -527,8 +817,10 @@
         <label style="display:flex;align-items:center;gap:5px;margin:0;font-size:0.62rem;"><input type="checkbox" id="${id}-allowblk" style="width:auto"/> bypass block</label>
         <button class="danger" onclick="this.closest('.list-card').remove();generateOutput();">✕</button>
       </div>
-      ${rateGridHtml(id, true)}`;
+      ${bandsUiHtml(id)}`;
     $('tokens-container').appendChild(card);
+    ensureModel(id);
+    renderBands(id);
     generateOutput();
     return card;
   }
@@ -552,8 +844,10 @@
         <button class="danger" onclick="this.closest('.rate-unit').remove();generateOutput();">✕</button>
       </div>
       <div class="field"><label>USERS (comma-separated)</label><input id="${id}-users" placeholder="alice, bob" value="${users||''}"/></div>
-      ${rateGridHtml(id, true)}`;
+      ${bandsUiHtml(id)}`;
     $('rate-order').appendChild(card);
+    ensureModel(id);
+    renderBands(id);
     wireDraggable(card);
     generateOutput();
     return card;
@@ -626,7 +920,7 @@
         const sym = (v(`${id}-sym`) || '').toUpperCase();
         if (!sym) return;
         L.push('', `[TOKEN:${sym}]`);
-        rateLines(id).forEach(x => L.push(x));
+        unitWindowLines(id).forEach(x => L.push(x));
         if ($(`${id}-allowblk`).checked) L.push('ALLOW-BLOCKED:yes');
         L.push('[/TOKEN]');
       });
@@ -637,9 +931,8 @@
       L.push('', `[LIST:${name}]`);
       L.push('USERS:' + csv(v(`${id}-users`)));
       L.push('CURRENCY:' + ((v(`${id}-cur`) || 'HBD').toUpperCase()));
-      L.push('[DAYS:mon-sun][TIME:00:00-23:59]');
-      rateLines(id).forEach(x => L.push(x));
-      L.push('[/TIME]', '[/LIST]');
+      unitWindowLines(id).forEach(x => L.push(x));
+      L.push('[/LIST]');
     };
     [...$('rate-order').children].forEach(unit => {
       if (unit.dataset.unit === 'tokens')      emitTokens();
@@ -649,9 +942,8 @@
     // 3. default — always last (pinned, last-resort fallback).
     L.push('', '[LIST:default]');
     L.push('CURRENCY:' + ((v('rd-cur') || 'HBD').toUpperCase()));
-    L.push('[DAYS:mon-sun][TIME:00:00-23:59]');
-    rateLines('rd').forEach(x => L.push(x));
-    L.push('[/TIME]', '[/LIST]');
+    unitWindowLines('rd').forEach(x => L.push(x));
+    L.push('[/LIST]');
 
     L.push('[/V4CALL-RATES-V2]');
     return L.join('\n');
@@ -739,6 +1031,7 @@
   //  ASSEMBLE FULL POST
   // ══════════════════════════════════════════════════════════
   function generateOutput(){
+    syncAllBands();
     refreshBadges();
     const acct = v('my-username').toLowerCase() || 'yourname';
     const parts = [];
@@ -793,43 +1086,86 @@
       box.appendChild(lab);
     });
   }
+  // Test moment in the SELECTED zone: day index (0=mon) + minute-of-day.
+  function testerMoment(){
+    const dSel = v('pv-day'), tSel = v('pv-time');
+    const n = new Date();
+    const nowWeekMin = (((n.getUTCDay() + 6) % 7) * 1440 + n.getUTCHours() * 60 + n.getUTCMinutes() + tzOffsetMin() + WEEKMIN) % WEEKMIN;
+    const day = dSel ? DAY_NAMES.indexOf(dSel) : Math.floor(nowWeekMin / 1440);
+    const min = tSel ? (hmToMin(tSel) ?? (nowWeekMin % 1440)) : (nowWeekMin % 1440);
+    return { day, min };
+  }
+  function bandAtLocal(key, day, min){
+    const model = ensureModel(key);
+    const bands = model.split ? (day >= 5 ? model.groups.we : model.groups.wk) : model.groups.all;
+    let hit = bands[0];
+    for (const b of bands){ if (b.start <= min) hit = b; else break; }
+    return hit;
+  }
+  function bandPriceText(b, cur){
+    if (b.kind === 'free') return `FREE (deliberate 🆓 band)`;
+    const d = describeBand(b).replace('💰 ', '');
+    return `${d} ${cur}`;
+  }
+  function allZeroRates(b){ return RATE_KEYS.filter(k => k !== 'vdep' && k !== 'Vdep').every(k => !(parseFloat(b.rates[k]) > 0)); }
+
   function computePreview(){
     const out = $('pv-result');
     if (!out) return;
     const setOut = (t, k) => { out.textContent = t; out.className = 'pv-result' + (k ? ' ' + k : ''); };
     const caller = (v('pv-caller') || '').toLowerCase();
     if (!caller){ setOut("Enter a test caller to see what they'd pay."); return; }
+    syncAllBands();
     const held = new Set([...previewHeld].map(s => s.toUpperCase()));
+    const { day, min } = testerMoment();
+    const at = `${DAY_NAMES[day]} ${fmtMin(min)} ${tzShortLabel()}`;
+    const notes = [];
 
-    // 1. BLOCKED — unless ALLOW-IF-TOKEN held
+    // 1. BLOCKED — unless ALLOW-IF-TOKEN held (then resolution continues normally)
     const blocked = csv(v('r-blocked-users')).split(',').filter(Boolean);
     if (blocked.includes(caller)){
       const allowTok = (v('r-blocked-token') || '').toUpperCase();
-      if (allowTok && held.has(allowTok)) return setOut(`🔓 On your blocked list, but holds ${allowTok} → ALLOW-IF-TOKEN bypass: pays the ${allowTok} token rate.`, 'pv-ok');
-      return setOut(`⛔ BLOCKED — "${v('r-blocked-msg') || 'You have been blocked.'}"`, 'pv-bad');
+      if (!(allowTok && held.has(allowTok)))
+        return setOut(`⛔ BLOCKED — "${v('r-blocked-msg') || 'You have been blocked.'}"`, 'pv-bad');
+      notes.push(`🔓 blocked but holds ${allowTok} → bypass`);
     }
 
-    // 2. Walk the middle units top-to-bottom; first match wins.
-    const defined = definedTokenSymbols();
+    // 2. Walk the middle units top-to-bottom; first match at this moment wins.
+    const tokenCards = [...document.querySelectorAll('#tokens-container .list-card')];
     for (const unit of $('rate-order').children){
-      if (unit.dataset.unit === 'list'){
+      if (unit.dataset.unit === 'tokens'){
+        for (const card of tokenCards){
+          const id = card.dataset.tokId;
+          const sym = (v(`${id}-sym`) || '').toUpperCase();
+          if (!sym || !held.has(sym)) continue;
+          const b = bandAtLocal(id, day, min);
+          if (b.kind === 'quiet'){ notes.push(`[TOKEN:${sym}] quiet at ${at}`); continue; }
+          return setOut(`${notes.length ? notes.join(' · ') + ' · ' : ''}💠 At ${at}: pays the [TOKEN:${sym}] band ${fmtMin(b.start)}– → ${bandPriceText(b, sym)}.`, 'pv-ok');
+        }
+      } else if (unit.dataset.unit === 'list'){
         const id = unit.dataset.listId;
         const name = (v(`${id}-name`) || '').toLowerCase();
         if (!name) continue;
         const users = csv(v(`${id}-users`)).split(',').filter(Boolean);
-        if (users.includes(caller)){
-          const lcur = (v(`${id}-cur`) || 'HBD').toUpperCase();
-          return setOut(`✅ Matches [LIST:${name}] (first match wins) → that list's rate applies, priced in ${lcur} (Invite / Offer / DM / Voice / Video).`, 'pv-ok');
-        }
-      } else if (unit.dataset.unit === 'tokens'){
-        const heldPriced = defined.filter(s => held.has(s));
-        if (heldPriced.length) return setOut(`💠 Reaches the Token-rates group → multi-currency picker among held priced tokens: ${heldPriced.join(', ')}.`, 'pv-ok');
+        if (!users.includes(caller)) continue;
+        const b = bandAtLocal(id, day, min);
+        if (b.kind === 'quiet'){ notes.push(`[LIST:${name}] quiet at ${at} → falls through`); continue; }
+        const lcur = (v(`${id}-cur`) || 'HBD').toUpperCase();
+        return setOut(`${notes.length ? notes.join(' · ') + ' · ' : ''}✅ At ${at}: matches [LIST:${name}] → ${bandPriceText(b, lcur)}.`, 'pv-ok');
       }
     }
 
-    // 3 + 4. default fallback / free
+    // 3. default band at this moment
+    const db = bandAtLocal('rd', day, min);
     const dcur = (v('rd-cur') || 'HBD').toUpperCase();
-    return setOut(`↩️ Falls through to [LIST:default] → your default rate, priced in ${dcur} (free if all default fields are 0).`, 'pv-ok');
+    const pre = notes.length ? notes.join(' · ') + ' · ' : '';
+    if (db.kind === 'quiet')
+      return setOut(`${pre}⛔ At ${at}: default is QUIET — @${caller} matches nothing and is DENIED (quiet by default, not free).`, 'pv-bad');
+    const tiersExist = tokenCards.some(c => v(c.dataset.tokId + '-sym')) ||
+      [...$('rate-order').children].some(u => u.dataset.unit === 'list' && v(u.dataset.listId + '-name'));
+    if (db.kind === 'rate' && allZeroRates(db) && tiersExist)
+      return setOut(`${pre}⛔ At ${at}: default band is all-zero next to real tiers — the server treats that as boilerplate, so @${caller} is DENIED. Set the band to 🆓 Free if you really want everyone free here.`, 'pv-bad');
+    return setOut(`${pre}↩️ At ${at}: falls through to [LIST:default] band ${fmtMin(db.start)}– → ${bandPriceText(db, dcur)}.`, 'pv-ok');
   }
   function refreshPreview(){ rebuildPreviewTokens(); computePreview(); }
 
@@ -1077,7 +1413,11 @@
     if (!posts){ showStatus('✗ Could not reach Hive API.', 'danger'); return; }
     const post = posts.find(p => p.title === POST_TITLE) || posts.find(p => p.title === 'v4call-rates');
     if (!post){ showStatus(`✗ No ${POST_TITLE} / v4call-rates post for @${username}.`, 'danger'); return; }
-    try { applyLoaded(post.body); showStatus(`✓ Loaded from Hive (@${username}).`, 'green'); }
+    try {
+      loadApproxWarn = false;
+      applyLoaded(post.body);
+      showStatus(`✓ Loaded from Hive (@${username}).` + (loadApproxWarn ? ' ⚠ Some per-day time patterns didn\'t fit the weekday/weekend editor and were simplified — check the bands before re-posting.' : ''), loadApproxWarn ? 'blue' : 'green');
+    }
     catch(e){ showStatus('✗ Parse error: ' + e.message, 'danger'); }
   }
 
@@ -1091,16 +1431,96 @@
     return m ? m[1].trim() : '';
   }
   function numFromRate(s){ if(!s) return '0'; if(/free/i.test(s)) return '0'; const n=parseFloat(s.replace(/[^0-9.]/g,'')); return isNaN(n)?'0':String(n); }
-  function setRateGrid(p, block){
-    if (!block) return;
-    const set = (id,val)=>{ if($(id)) $(id).value = val; };
-    set(`${p}-invite`, numFromRate(fieldOf(block,'INVITE')));
-    set(`${p}-offer`, numFromRate(fieldOf(block,'OFFER')));
-    set(`${p}-dm`, numFromRate(fieldOf(block,'DM')));
+
+  // Parse the rate lines of one window body → a band.rates object.
+  function parseWindowRates(block){
+    const r = {};
+    r.invite = numFromRate(fieldOf(block,'INVITE'));
+    r.offer  = numFromRate(fieldOf(block,'OFFER'));
+    r.dm     = numFromRate(fieldOf(block,'DM') || fieldOf(block,'TEXT'));
     const voice = fieldOf(block,'VOICE'), video = fieldOf(block,'VIDEO');
     const pick = (line,k)=>{ const m=line.match(new RegExp(k+':([\\d.]+|FREE)','i')); return m?numFromRate(m[1]):'0'; };
-    if (voice){ set(`${p}-vring`,pick(voice,'RING')); set(`${p}-vconn`,pick(voice,'CONNECT')); set(`${p}-vrate`,pick(voice,'RATE')); set(`${p}-vdep`,pick(voice,'MIN-DEPOSIT')); }
-    if (video){ set(`${p}-Vring`,pick(video,'RING')); set(`${p}-Vconn`,pick(video,'CONNECT')); set(`${p}-Vrate`,pick(video,'RATE')); set(`${p}-Vdep`,pick(video,'MIN-DEPOSIT')); }
+    r.vring = voice?pick(voice,'RING'):'0'; r.vconn = voice?pick(voice,'CONNECT'):'0'; r.vrate = voice?pick(voice,'RATE'):'0'; r.vdep = voice?pick(voice,'MIN-DEPOSIT'):'0';
+    r.Vring = video?pick(video,'RING'):'0'; r.Vconn = video?pick(video,'CONNECT'):'0'; r.Vrate = video?pick(video,'RATE'):'0'; r.Vdep = video?pick(video,'MIN-DEPOSIT'):'0';
+    return r;
+  }
+  function parseDaysClient(s){
+    s = (s||'').trim().toLowerCase();
+    if (s === 'mon-sun') return [0,1,2,3,4,5,6];
+    if (s === 'mon-fri') return [0,1,2,3,4];
+    if (s === 'sat-sun') return [5,6];
+    return s.split(',').map(x => DAY_NAMES.indexOf(x.trim())).filter(i => i >= 0);
+  }
+  function parseWindowsClient(body){
+    const wins = []; const re = /\[DAYS:([^\]]+)\]\[TIME:([^\]]+)\]([\s\S]*?)\[\/TIME\]/gi; let m;
+    while ((m = re.exec(body || ''))){
+      const tp = m[2].trim().split('-');
+      const s = hmToMin(tp[0]) ?? 0, eIncl = hmToMin(tp[1]) ?? 1439;
+      wins.push({ days: parseDaysClient(m[1]), s, e: eIncl + 1, free: /^MODE:\s*free/mi.test(m[3]), rates: parseWindowRates(m[3]) });
+    }
+    return wins;
+  }
+
+  // Rebuild a band model from a post's UTC windows: paint a UTC weekly grid,
+  // shift into the selected zone, re-extract per-day bands, then classify as
+  // "every day" / "weekends differ". Patterns that fit neither are simplified
+  // (mon → weekdays, sat → weekend) and flagged via loadApproxWarn.
+  let loadApproxWarn = false;
+  function windowsToModel(wins, legacyFlatBody){
+    if (!wins.length){
+      const model = newBandModel();
+      if (legacyFlatBody != null && /^MODE:\s*quiet/mi.test(legacyFlatBody)) model.groups.all = [newBand(0, 'quiet')];
+      else model.groups.all = [newBand(0, 'rate', legacyFlatBody != null ? parseWindowRates(legacyFlatBody) : {})];
+      return model;
+    }
+    const grid = new Array(WEEKMIN).fill(null);
+    for (const w of wins) for (const d of w.days){
+      if (w.e > w.s){ for (let m = w.s; m < w.e; m++) grid[d*1440 + m] = w; }
+      else { for (let m = w.s; m < 1440; m++) grid[d*1440 + m] = w; for (let m = 0; m < w.e; m++) grid[d*1440 + m] = w; }
+    }
+    const off = tzOffsetMin();
+    const lg = new Array(WEEKMIN);
+    for (let i = 0; i < WEEKMIN; i++) lg[(i + off + WEEKMIN) % WEEKMIN] = grid[i];
+    const dayBands = [];
+    for (let d = 0; d < 7; d++){
+      const bands = []; let cur;
+      for (let m = 0; m < 1440; m++){
+        const w = lg[d*1440 + m];
+        if (w !== cur || m === 0){ bands.push({ start: m, w }); cur = w; }
+      }
+      dayBands.push(bands);
+    }
+    // Merge adjacent same-kind/same-rate runs: the UTC day boundary splits a
+    // shifted band into separate window objects — without merging, every reload
+    // would sprout phantom band boundaries at (00:00 UTC → local) offsets.
+    const mergeDay = list => {
+      const out = [];
+      for (const x of list){
+        const kind = x.w ? (x.w.free ? 'free' : 'rate') : 'quiet';
+        const rj = x.w ? JSON.stringify(x.w.rates) : '';
+        const prev = out[out.length - 1];
+        if (prev && prev.kind === kind && prev._rj === rj) continue;
+        const b = newBand(x.start, kind, x.w ? x.w.rates : undefined);
+        b._rj = rj;
+        out.push(b);
+      }
+      return out;
+    };
+    const merged = dayBands.map(mergeDay);
+    const msig = bands => bands.map(b => `${b.start}:${b.kind}:${b._rj}`).join('|');
+    const model = newBandModel();
+    if (merged.every(b => msig(b) === msig(merged[0]))){
+      model.groups.all = merged[0];
+    } else {
+      const wkSame = [1,2,3,4].every(d => msig(merged[d]) === msig(merged[0]));
+      const weSame = msig(merged[6]) === msig(merged[5]);
+      if (!(wkSame && weSame)) loadApproxWarn = true;
+      model.split = true;
+      model.groups.wk = merged[0];
+      model.groups.we = merged[5];
+      model.groups.all = cloneBands(merged[0]);
+    }
+    return model;
   }
 
   function applyLoaded(body){
@@ -1115,12 +1535,12 @@
       if (fieldOf(rb,'ESCROW')) $('r-escrow').value = fieldOf(rb,'ESCROW');
       const blk = blockOf(rb,'BLOCKED');
       if (blk){ $('r-blocked-users').value = fieldOf(blk,'USERS'); $('r-blocked-msg').value = fieldOf(blk,'MESSAGE'); $('r-blocked-token').value = fieldOf(blk,'ALLOW-IF-TOKEN'); }
-      // default list window
+      // default list — rebuild its bands from the post's UTC windows
       const def = (rb.match(/\[LIST:default\]([\s\S]*?)\[\/LIST\]/i)||[])[1];
       if (def){
-        const win = (def.match(/\[TIME:[^\]]*\]([\s\S]*?)\[\/TIME\]/i)||[])[1] || def;
-        setRateGrid('rd', win);
         $('rd-cur').value = (fieldOf(def,'CURRENCY') || 'HBD').toUpperCase();
+        bandModels['rd'] = windowsToModel(parseWindowsClient(def));
+        renderBands('rd');
       }
       // Reconstruct the MIDDLE priority order from document order. Walk the block:
       // the Token-rates group lands at the FIRST [TOKEN:*] position; each non-default
@@ -1151,15 +1571,18 @@
         else {
           const body = listBodies[u.name] || '';
           const card = addList(u.name, fieldOf(body,'USERS'), (fieldOf(body,'CURRENCY') || 'HBD').toUpperCase());
-          const win = (body.match(/\[TIME:[^\]]*\]([\s\S]*?)\[\/TIME\]/i)||[])[1] || body;
-          setRateGrid(card.dataset.listId, win);
+          bandModels[card.dataset.listId] = windowsToModel(parseWindowsClient(body));
+          renderBands(card.dataset.listId);
         }
       });
       if (!tg.parentElement) $('rate-order').insertBefore(tg, $('rate-order').firstChild);
       // populate the token sub-cards (their group position is already set)
       tokenBlocks.forEach(tb=>{
         const card = addToken(tb[1].trim());
-        setRateGrid(card.dataset.tokId, tb[2]);
+        // pass the raw body too: legacy flat token sections (no [TIME] blocks)
+        // become one 24/7 priced band from their flat rate lines
+        bandModels[card.dataset.tokId] = windowsToModel(parseWindowsClient(tb[2]), tb[2]);
+        renderBands(card.dataset.tokId);
         if(/ALLOW-BLOCKED:\s*yes/i.test(tb[2])) $(card.dataset.tokId+'-allowblk').checked = true;
       });
     }
@@ -1237,6 +1660,14 @@
   document.addEventListener('change', generateOutput);
   window.addEventListener('DOMContentLoaded', () => {
     $('my-server').value = SERVER_DOMAIN; $('r-escrow').value = ESCROW_DEFAULT; refreshBadges();
+
+    // timezone change: re-label + re-render band UIs (times re-interpret, not shift)
+    $('tz-select').addEventListener('change', () => {
+      syncAllBands();
+      updateTzClock();
+      Object.keys(bandModels).forEach(renderBands);
+      generateOutput();
+    });
 
     // drag-to-reorder: make the static Token-rates group draggable + wire the container
     wireDraggable($('rate-tokens-group'));
