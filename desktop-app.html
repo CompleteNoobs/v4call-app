@@ -1227,7 +1227,7 @@
     </div>
     <div id="lobby-right-body">
     <div id="create-section">
-      <div id="invitee-preview">Select users on the left first.</div>
+      <div id="invitee-preview">Creating solo — select users on the left to invite (optional).</div>
       <input id="room-name-input" type="text" placeholder="room name…" maxlength="32" oninput="checkRoomName()" autocomplete="off" spellcheck="false"/>
       <div id="room-name-status"></div>
       <div class="create-token-gate" style="margin:8px 0 4px;font-size:0.72rem;">
@@ -1246,7 +1246,7 @@
           Show banlist to all room members (default: admin-only)
         </label>
       </div>
-      <button class="primary" id="create-btn" onclick="createRoom()" disabled style="font-size:0.8rem;padding:8px;">Create &amp; Invite →</button>
+      <button class="primary" id="create-btn" onclick="createRoom()" disabled style="font-size:0.8rem;padding:8px;">Create Room →</button>
     </div>
     <div id="knock-section">
       <h3>JOIN BY NAME</h3>
@@ -2576,15 +2576,18 @@ socket.on('lobby-users', (users) => {
 });
 
 function updateCreatePanel() {
+  // v0.20 — solo room creation: invitees are optional, invite-after still works
+  // via the in-room allowlist panel. Only the name check gates the button.
   const count = lobbySelected.size;
   const btn   = document.getElementById('create-btn');
   if (count === 0) {
-    document.getElementById('invitee-preview').textContent = 'Select users on the left first.';
-    btn.disabled = true;
+    document.getElementById('invitee-preview').textContent = 'Creating solo — select users on the left to invite (optional).';
+    btn.textContent = 'Create Room →';
   } else {
     document.getElementById('invitee-preview').textContent = 'Inviting: @' + myUsername + ', ' + [...lobbySelected].map(u=>'@'+u).join(', ');
-    btn.disabled = !document.getElementById('room-name-status').classList.contains('ok');
+    btn.textContent = 'Create & Invite →';
   }
+  btn.disabled = !document.getElementById('room-name-status').classList.contains('ok');
 }
 
 // ── Lobby tabs ──────────────────────────────────────────
@@ -3759,13 +3762,13 @@ function checkRoomName() {
     socket.emit('room-check', val, ({ available }) => {
       status.textContent = available ? '✓ Available' : '✗ Name taken';
       status.className   = available ? 'ok' : 'bad';
-      btn.disabled       = !available || lobbySelected.size === 0;
+      btn.disabled       = !available;
     });
   }, 400);
 }
 function createRoom() {
   const roomName = document.getElementById('room-name-input').value.trim();
-  if (!roomName || !lobbySelected.size) return;
+  if (!roomName) return;
   const tgEnabled = document.getElementById('enable-token-gate')?.checked;
   socket.emit('room-create', {
     roomName,
